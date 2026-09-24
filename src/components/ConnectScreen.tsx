@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from 'motion/react'
 import { webSerialSupported } from '../flipper/serial'
 import { connect } from '../state/actions'
 import { useStore } from '../state/store'
+import { Logo } from './Logo'
 import { Button } from './ui'
 
 const STEPS = [
@@ -27,6 +28,7 @@ export function ConnectScreen() {
           transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           className="flex flex-col items-start"
         >
+          <Logo size={72} className="mb-6" />
           <h1 className="text-4xl font-semibold leading-[1.05] tracking-tighter text-ink md:text-5xl">
             Sort out every app on your Flipper.
           </h1>

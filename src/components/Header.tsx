@@ -12,6 +12,7 @@ import {
 import { motion } from 'motion/react'
 import { disconnect, scan } from '../state/actions'
 import { setState, useStore, type Tab, type Theme } from '../state/store'
+import { Logo } from './Logo'
 import { IconButton } from './ui'
 
 const TABS: { id: Tab; label: string; icon: typeof SquaresFourIcon }[] = [
@@ -38,7 +39,7 @@ export function Header() {
     <header className="sticky top-0 z-20 border-b border-line bg-surface/90 backdrop-blur">
       <div className="flex h-14 items-center gap-3 px-4">
         <div className="flex items-center gap-2.5">
-          <img src="/web-app-manifest-192x192.png" alt="" width={28} height={28} className="size-7 rounded-lg" />
+          <Logo size={32} />
           <span className="hidden text-[15px] font-semibold tracking-tight text-ink sm:block">Flipper App Manager</span>
         </div>
 
