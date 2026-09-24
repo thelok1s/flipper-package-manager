@@ -16,7 +16,7 @@ import {
   parseResourcesManifest,
   type Fim,
 } from '../lib/manifests'
-import { getState, setState, toast, type ScannedFile } from './store'
+import { getState, setState, toast, type PendingFile, type ScannedFile } from './store'
 
 const text = new TextDecoder()
 const enc = new TextEncoder()
@@ -90,7 +90,7 @@ function friendlyConnectError(msg: string) {
 
 export async function disconnect() {
   const d = getState().device
-  setState({ device: null, deviceInfo: null, status: 'disconnected', scan: null, scanned: [], apps: [], duplicates: new Map(), folders: [] })
+  setState({ device: null, deviceInfo: null, status: 'disconnected', scan: null, scanned: [], pending: [], apps: [], duplicates: new Map(), folders: [] })
   await d?.close()
 }
 
@@ -122,9 +122,21 @@ async function readFims(d: FlipperDevice): Promise<Fim[]> {
   return fims
 }
 
+const FLUSH_MS = 250
+
 export async function scan() {
   const d = requireDevice()
-  setState({ status: 'scanning', scan: { phase: 'Reading firmware resource list', done: 0, total: 0 } })
+  setState({ status: 'scanning', pending: [], scan: { phase: 'Reading firmware resource list', done: 0, total: 0 } })
+  const scanned: ScannedFile[] = []
+  let pending: PendingFile[] = []
+  let lastFlush = 0
+  // Re-render at most a few times a second while apps stream in.
+  const flush = (force = false) => {
+    if (!force && Date.now() - lastFlush < FLUSH_MS) return
+    lastFlush = Date.now()
+    rebuild({ scanned: [...scanned], pending })
+  }
+
   try {
     let systemPaths = new Map<string, string>()
     try {
@@ -133,43 +145,99 @@ export async function scan() {
       toast('No /ext/Manifest found, so system apps cannot be identified', 'info')
     }
 
-    setState({ scan: { phase: 'Reading market install manifests', done: 0, total: 0 } })
+    setState({ scan: { phase: 'Reading catalog install manifests', done: 0, total: 0 } })
     const fims = await readFims(d)
 
+    // Phase 1: list every folder. Cheap, and gives the full file count up front.
     setState({ scan: { phase: 'Listing folders', done: 0, total: 0 } })
-    const files: { path: string; size: number; md5?: string }[] = []
+    const files: PendingFile[] = []
     const folders: string[] = ['']
+    const unlisted: string[] = []
+    const listDir = async (dir: string) => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await d.list(dir)
+        } catch (e) {
+          if (!getState().device) throw e
+          if (attempt >= 1) {
+            unlisted.push(dir.replace('/ext/', ''))
+            return []
+          }
+        }
+      }
+    }
     const walk = async (dir: string) => {
-      const entries = await d.list(dir, true)
-      for (const e of entries) {
+      for (const e of await listDir(dir)) {
         const p = joinPath(dir, e.name)
         if (e.type === 'dir') {
           folders.push(p.slice(APPS_ROOT.length + 1))
           setState({ scan: { phase: 'Listing folders', done: 0, total: 0, current: p } })
           await walk(p)
         } else if (e.name.toLowerCase().endsWith('.fap')) {
-          files.push({ path: p, size: e.size, md5: e.md5 })
+          files.push({ path: p, size: e.size })
         }
       }
     }
     await walk(APPS_ROOT)
-
-    const scanned: ScannedFile[] = []
-    for (const [i, f] of files.entries()) {
-      setState({ scan: { phase: 'Reading app manifests', done: i, total: files.length, current: f.path } })
-      const key = fapCache.key(f.path, f.size, f.md5)
-      let info = await fapCache.get(key).catch(() => undefined)
-      if (!info) {
-        info = parseFap(await d.read(f.path))
-        await fapCache.put(key, info).catch(() => undefined)
-      }
-      scanned.push({ ...f, info })
-    }
+    if (unlisted.length) toast(`Could not list ${unlisted.join(', ')}. Scan again to retry.`, 'error')
     folders.sort((a, b) => a.localeCompare(b))
-    rebuild({ scanned, folders, systemPaths, fims, status: 'ready', scan: null })
+    pending = files
+    rebuild({ scanned: [], pending, folders, systemPaths, fims })
+
+    // Phase 2: reuse cached manifests for files that have not changed.
+    let hasTimestamps = true
+    const toRead: (PendingFile & { key: string; mtime: number | null })[] = []
+    for (const [i, f] of files.entries()) {
+      setState({ scan: { phase: 'Checking for changes', done: i, total: files.length, current: f.path } })
+      const mtime = hasTimestamps ? await d.timestamp(f.path).catch(() => null) : null
+      if (mtime === null) hasTimestamps = false
+      const key = fapCache.key(f.path, f.size, mtime)
+      const info = await fapCache.get(key).catch(() => undefined)
+      if (info) {
+        scanned.push({ ...f, mtime, info })
+        pending = pending.filter((p) => p.path !== f.path)
+        flush()
+      } else {
+        toRead.push({ ...f, key, mtime })
+      }
+    }
+    flush(true)
+
+    // Phase 3: read the rest. RPC has no partial reads, so each .fap comes over whole.
+    const bytesTotal = toRead.reduce((s, f) => s + f.size, 0)
+    let bytesDone = 0
+    const started = Date.now()
+    let lastProgress = 0
+    const progress = (i: number, f: PendingFile, inFile: number) => {
+      if (Date.now() - lastProgress < 150 && inFile) return
+      lastProgress = Date.now()
+      const done = bytesDone + inFile
+      const elapsed = (Date.now() - started) / 1000
+      const etaSec = elapsed > 2 && done > 0 ? Math.round(((bytesTotal - done) / done) * elapsed) : undefined
+      setState({
+        scan: { phase: 'Reading apps', done: i, total: toRead.length, current: f.path, bytesDone: done, bytesTotal, etaSec },
+      })
+    }
+    for (const [i, f] of toRead.entries()) {
+      progress(i, f, 0)
+      let info
+      try {
+        info = parseFap(await d.read(f.path, (n) => progress(i, f, n), f.size))
+        await fapCache.put(f.key, info).catch(() => undefined)
+      } catch (e) {
+        if (!getState().device) throw e
+        info = { manifest: null, urls: [], sections: [], error: `Could not read: ${errorText(e)}` }
+      }
+      bytesDone += f.size
+      scanned.push({ path: f.path, size: f.size, mtime: f.mtime, info })
+      pending = pending.filter((p) => p.path !== f.path)
+      flush()
+    }
+    rebuild({ scanned, pending: [], status: 'ready', scan: null })
   } catch (e) {
-    setState({ status: getState().device ? 'ready' : 'disconnected', scan: null })
-    toast(`Scan failed: ${errorText(e)}`, 'error')
+    // Keep whatever was read before the failure.
+    rebuild({ scanned, pending: [], status: getState().device ? 'ready' : 'disconnected', scan: null })
+    toast(`Scan stopped: ${errorText(e)}`, 'error')
   }
 }
 

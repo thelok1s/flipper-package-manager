@@ -1,14 +1,22 @@
 import { CheckCircleIcon, InfoIcon, WarningCircleIcon } from '@phosphor-icons/react'
 import { AnimatePresence, motion } from 'motion/react'
 import { setState, useStore } from '../state/store'
+import { formatEta } from './ui'
 
 /** Thin progress strip for scans and device operations, shown under the header. */
 export function ProgressStrip() {
   const scan = useStore((s) => s.scan)
   const op = useStore((s) => s.op)
   const job = op ?? scan
-  const label = op ? op.label : scan ? `${scan.phase}${scan.total ? ` ${scan.done + 1} of ${scan.total}` : ''}` : ''
-  const fraction = job && job.total ? Math.min(1, job.done / job.total) : null
+  const eta = !op && scan?.etaSec !== undefined ? `, ${formatEta(scan.etaSec)}` : ''
+  const label = op ? op.label : scan ? `${scan.phase}${scan.total ? ` ${Math.min(scan.done + 1, scan.total)} of ${scan.total}` : ''}${eta}` : ''
+  const fraction = op
+    ? op.total ? Math.min(1, op.done / op.total) : null
+    : scan?.bytesTotal
+      ? Math.min(1, (scan.bytesDone ?? 0) / scan.bytesTotal)
+      : scan?.total
+        ? Math.min(1, scan.done / scan.total)
+        : null
   const detail = scan && !op ? scan.current?.replace('/ext/', '') : undefined
 
   return (

@@ -16,7 +16,7 @@ import { getState, setState, useStore, type ViewMode } from '../state/store'
 import { AppBadges } from './AppBadges'
 import { AppIcon } from './AppIcon'
 import { ask } from './Confirm'
-import { Button, IconButton, formatSize } from './ui'
+import { Button, IconButton, formatEta, formatSize } from './ui'
 
 const SORTS: { id: SortKey; label: string }[] = [
   { id: 'name', label: 'Name' },
@@ -252,11 +252,86 @@ function SkeletonGrid() {
   )
 }
 
+/** Placeholders for files found on the card whose manifests are still being read. */
+function usePending() {
+  const pending = useStore((s) => s.pending)
+  const folders = useStore((s) => s.filters.folders)
+  return useMemo(
+    () =>
+      pending
+        .map((p) => {
+          const rel = p.path.slice('/ext/apps/'.length)
+          const cut = rel.lastIndexOf('/')
+          return { ...p, folder: cut === -1 ? '' : rel.slice(0, cut), fileName: rel.slice(cut + 1) }
+        })
+        .filter((p) => !folders.length || folders.includes(p.folder)),
+    [pending, folders],
+  )
+}
+
+function PendingCard({ fileName, folder }: { fileName: string; folder: string }) {
+  return (
+    <div className="flex flex-col gap-2.5 rounded-lg border border-transparent p-3" aria-hidden>
+      <div className="size-[52px] animate-pulse rounded-lg bg-surface-2" />
+      <div className="min-w-0">
+        <div className="truncate font-mono text-[13px] text-muted">{fileName}</div>
+        <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted">
+          <FolderSimpleIcon size={12} aria-hidden />
+          <span className="truncate">{folder || 'apps root'}</span>
+        </div>
+      </div>
+      <div className="h-4 w-16 animate-pulse rounded-full bg-surface-2" />
+    </div>
+  )
+}
+
+function PendingRow({ fileName, folder }: { fileName: string; folder: string }) {
+  return (
+    <div className="grid grid-cols-[20px_32px_1fr_auto] items-center gap-3 px-4 py-2 md:grid-cols-[20px_32px_minmax(0,2fr)_minmax(0,1fr)_64px_64px_72px]" aria-hidden>
+      <span />
+      <div className="size-8 animate-pulse rounded-lg bg-surface-2" />
+      <div className="truncate font-mono text-[13px] text-muted">{fileName}</div>
+      <div className="hidden truncate text-[13px] text-muted md:block">{folder || 'apps root'}</div>
+      <div className="hidden h-3 w-8 animate-pulse rounded bg-surface-2 md:block" />
+      <div className="hidden h-3 w-8 animate-pulse rounded bg-surface-2 md:block" />
+      <div className="h-3 w-12 animate-pulse justify-self-end rounded bg-surface-2" />
+    </div>
+  )
+}
+
+function ScanNotice() {
+  const scan = useStore((s) => s.scan)
+  const pending = useStore((s) => s.pending.length)
+  const found = useStore((s) => s.apps.length + s.pending.length)
+  if (!scan || !pending) return null
+  const reading = scan.phase === 'Reading apps'
+  return (
+    <div role="status" className="mx-3 mt-3 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+      <p className="text-ink">
+        {reading ? (
+          <>
+            Reading app <span className="font-mono">{scan.done + 1}</span> of <span className="font-mono">{scan.total}</span>
+            {scan.etaSec !== undefined && <span className="text-muted">, {formatEta(scan.etaSec)}</span>}
+          </>
+        ) : (
+          <>
+            Found <span className="font-mono">{found}</span> apps. Checking which ones changed since the last scan.
+          </>
+        )}
+      </p>
+      <p className="mt-1 max-w-[70ch] text-[13px] leading-relaxed text-muted">
+        The first scan copies every .fap over USB to read its manifest, which can take a few minutes. Apps appear as they are read, and later scans only read files that changed.
+      </p>
+    </div>
+  )
+}
+
 export function AppsView() {
   const apps = useStore((s) => s.apps)
   const filters = useStore((s) => s.filters)
   const prefs = useStore((s) => s.prefs)
-  const scanning = useStore((s) => s.status === 'scanning' && s.apps.length === 0)
+  const pending = usePending()
+  const listing = useStore((s) => s.status === 'scanning' && s.apps.length === 0 && s.pending.length === 0)
   const shown = useMemo(() => sortApps(applyFilters(apps, filters), prefs.sort, prefs.sortDir), [apps, filters, prefs.sort, prefs.sortDir])
   const grouped = useMemo(() => {
     const m = new Map<string, AppRecord[]>()
@@ -268,9 +343,10 @@ export function AppsView() {
     <div className="flex h-full min-h-0 flex-col">
       <Toolbar shown={shown} total={apps.length} />
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto" role={prefs.view === 'grid' ? undefined : 'table'}>
-        {scanning ? (
+        <ScanNotice />
+        {listing ? (
           <SkeletonGrid />
-        ) : shown.length === 0 ? (
+        ) : shown.length === 0 && pending.length === 0 ? (
           <div className="flex h-full flex-col items-start justify-center gap-3 px-8 py-16 md:px-16">
             <h2 className="text-xl font-semibold tracking-tight text-ink">{apps.length ? 'No apps match these filters' : 'No apps found in /ext/apps'}</h2>
             <p className="max-w-[48ch] text-sm leading-relaxed text-muted">
@@ -289,12 +365,18 @@ export function AppsView() {
             {shown.map((a, i) => (
               <GridItem key={a.path} app={a} index={i} />
             ))}
+            {pending.map((p) => (
+              <PendingCard key={p.path} fileName={p.fileName} folder={p.folder} />
+            ))}
           </div>
         ) : prefs.view === 'list' ? (
           <>
             <ListHeader />
             {shown.map((a) => (
               <ListRow key={a.path} app={a} />
+            ))}
+            {pending.map((p) => (
+              <PendingRow key={p.path} fileName={p.fileName} folder={p.folder} />
             ))}
           </>
         ) : (
@@ -312,6 +394,16 @@ export function AppsView() {
                 ))}
               </section>
             ))}
+            {pending.length > 0 && (
+              <section aria-label="Still reading">
+                <h2 className="border-b border-line bg-surface-2/60 px-4 py-1.5 text-[13px] font-medium text-muted">
+                  Still reading <span className="font-mono text-[11px]">{pending.length}</span>
+                </h2>
+                {pending.map((p) => (
+                  <PendingRow key={p.path} fileName={p.fileName} folder={p.folder} />
+                ))}
+              </section>
+            )}
           </>
         )}
       </div>

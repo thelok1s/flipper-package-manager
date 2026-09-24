@@ -11,7 +11,10 @@ import {
 const FLIPPER_USB = { usbVendorId: 0x0483, usbProductId: 0x5740 }
 const RPC_MARKER = 'start_rpc_session\r\n'
 const CHUNK = 512
-const IDLE_TIMEOUT = 6000
+/** How long a command may go without any reply before it is treated as lost. */
+const IDLE_TIMEOUT = 8000
+/** Listing a folder full of large files can take a while on a slow SD card. */
+const LIST_TIMEOUT = 30000
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -21,7 +24,13 @@ interface Pending {
   resolve: (chunks: MainObject[]) => void
   reject: (e: Error) => void
   onChunk?: (count: number) => void
+  timeoutMs: number
   timer: ReturnType<typeof setTimeout>
+}
+
+interface CallOptions {
+  onChunk?: (count: number) => void
+  timeoutMs?: number
 }
 
 export const webSerialSupported = () => typeof navigator !== 'undefined' && 'serial' in navigator
@@ -148,20 +157,20 @@ export class SerialFlipper implements FlipperDevice {
     if (message.content) p.chunks.push(message[message.content] ?? {})
     p.onChunk?.(p.chunks.length)
     if (message.hasNext) {
-      p.timer = this.armTimeout(id)
+      p.timer = this.armTimeout(id, p.timeoutMs)
     } else {
       this.pending.delete(id)
       p.resolve(p.chunks)
     }
   }
 
-  private armTimeout(id: number) {
+  private armTimeout(id: number, ms: number) {
     return setTimeout(() => {
       const p = this.pending.get(id)
       if (!p) return
       this.pending.delete(id)
       p.reject(new RpcError('TIMEOUT', p.content))
-    }, IDLE_TIMEOUT)
+    }, ms)
   }
 
   private async writeRaw(bytes: Uint8Array) {
@@ -176,17 +185,17 @@ export class SerialFlipper implements FlipperDevice {
     return run
   }
 
-  private expect(id: number, content: string, onChunk?: (n: number) => void) {
+  private expect(id: number, content: string, { onChunk, timeoutMs = IDLE_TIMEOUT }: CallOptions = {}) {
     return new Promise<MainObject[]>((resolve, reject) => {
-      this.pending.set(id, { chunks: [], content, resolve, reject, onChunk, timer: this.armTimeout(id) })
+      this.pending.set(id, { chunks: [], content, resolve, reject, onChunk, timeoutMs, timer: this.armTimeout(id, timeoutMs) })
     })
   }
 
-  private call(content: string, payload: object = {}, onChunk?: (n: number) => void): Promise<MainObject[]> {
+  private call(content: string, payload: object = {}, options?: CallOptions): Promise<MainObject[]> {
     return this.enqueue(async () => {
       if (this.closed) throw new Error('Not connected')
       const id = this.nextId++
-      const response = this.expect(id, content, onChunk)
+      const response = this.expect(id, content, options)
       await this.writeRaw(encodeMain(id, content, payload))
       return response
     })
@@ -204,7 +213,8 @@ export class SerialFlipper implements FlipperDevice {
   }
 
   async list(path: string, withMd5 = false): Promise<StorageEntry[]> {
-    const chunks = await this.call('storageListRequest', { path, includeMd5: withMd5 })
+    // With include_md5 the Flipper hashes every file before its first reply, so keep it opt-in.
+    const chunks = await this.call('storageListRequest', { path, includeMd5: withMd5 }, { timeoutMs: withMd5 ? LIST_TIMEOUT * 4 : LIST_TIMEOUT })
     return chunks.flatMap((c) => (c.file ?? []) as MainObject[]).map(toEntry)
   }
 
@@ -218,9 +228,20 @@ export class SerialFlipper implements FlipperDevice {
     }
   }
 
-  async read(path: string, onProgress?: ProgressFn): Promise<Uint8Array> {
-    const size = onProgress ? ((await this.stat(path))?.size ?? 0) : 0
-    const chunks = await this.call('storageReadRequest', { path }, (n) => onProgress?.(Math.min(n * CHUNK, size), size))
+  /** Last-modified time in seconds, or null when the firmware predates the timestamp request. */
+  async timestamp(path: string): Promise<number | null> {
+    try {
+      const [c] = await this.call('storageTimestampRequest', { path })
+      return c?.timestamp ?? null
+    } catch (e) {
+      if (e instanceof RpcError && (e.status === 'ERROR_NOT_IMPLEMENTED' || e.status === 'ERROR_DECODE')) return null
+      throw e
+    }
+  }
+
+  async read(path: string, onProgress?: ProgressFn, knownSize?: number): Promise<Uint8Array> {
+    const size = onProgress ? (knownSize ?? (await this.stat(path))?.size ?? 0) : 0
+    const chunks = await this.call('storageReadRequest', { path }, { onChunk: (n) => onProgress?.(Math.min(n * CHUNK, size), size) })
     const parts = chunks.map((c) => (c.file?.data as Uint8Array | undefined) ?? new Uint8Array(0))
     const out = new Uint8Array(parts.reduce((s, p) => s + p.length, 0))
     let offset = 0

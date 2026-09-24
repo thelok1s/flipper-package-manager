@@ -10,7 +10,25 @@ export interface ScannedFile {
   path: string
   size: number
   md5?: string
+  mtime?: number | null
   info: FapInfo
+}
+
+/** A .fap found while listing whose manifest has not been read yet. */
+export interface PendingFile {
+  path: string
+  size: number
+}
+
+export interface ScanProgress {
+  phase: string
+  done: number
+  total: number
+  current?: string
+  bytesDone?: number
+  bytesTotal?: number
+  /** Seconds left for the reading phase, once there is enough data to estimate. */
+  etaSec?: number
 }
 
 export type Tab = 'apps' | 'folders' | 'duplicates' | 'history'
@@ -36,8 +54,9 @@ export interface State {
   deviceInfo: DeviceInfo | null
   status: 'disconnected' | 'connecting' | 'scanning' | 'ready'
   error: string | null
-  scan: { phase: string; done: number; total: number; current?: string } | null
+  scan: ScanProgress | null
   scanned: ScannedFile[]
+  pending: PendingFile[]
   folders: string[]
   systemPaths: Map<string, string>
   fims: Fim[]
@@ -82,6 +101,7 @@ let state: State = {
   error: null,
   scan: null,
   scanned: [],
+  pending: [],
   folders: [],
   systemPaths: new Map(),
   fims: [],

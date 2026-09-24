@@ -120,3 +120,6 @@ export const formatSize = (bytes: number) =>
 
 export const formatDate = (ts: number) =>
   new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(ts)
+
+export const formatEta = (sec?: number) =>
+  sec === undefined ? '' : sec < 60 ? `about ${Math.max(5, Math.ceil(sec / 5) * 5)} s left` : `about ${Math.ceil(sec / 60)} min left`

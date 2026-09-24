@@ -25,7 +25,8 @@ export interface FlipperDevice {
   info(): Promise<DeviceInfo>
   list(path: string, withMd5?: boolean): Promise<StorageEntry[]>
   stat(path: string): Promise<StorageEntry | null>
-  read(path: string, onProgress?: ProgressFn): Promise<Uint8Array>
+  timestamp(path: string): Promise<number | null>
+  read(path: string, onProgress?: ProgressFn, knownSize?: number): Promise<Uint8Array>
   write(path: string, data: Uint8Array, onProgress?: ProgressFn): Promise<void>
   remove(path: string, recursive?: boolean): Promise<void>
   mkdir(path: string): Promise<void>

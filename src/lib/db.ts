@@ -36,9 +36,9 @@ export const history = {
 
 export const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
-/** Parsed .fap results keyed by path + size + md5, so rescans only read changed files. */
+/** Parsed .fap results keyed by path + size + modified time, so rescans only read changed files. */
 export const fapCache = {
-  key: (path: string, size: number, md5?: string) => `${path.toLowerCase()}|${size}|${md5 ?? ''}`,
+  key: (path: string, size: number, stamp?: string | number | null) => `${path.toLowerCase()}|${size}|${stamp ?? ''}`,
   get: (key: string) => get<FapInfo>(key, cacheStore),
   put: (key: string, info: FapInfo) => set(key, info, cacheStore),
 }
