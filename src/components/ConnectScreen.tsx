@@ -1,8 +1,9 @@
-import { UsbIcon, WarningIcon } from '@phosphor-icons/react'
+import { WarningIcon } from '@phosphor-icons/react'
 import { motion, useReducedMotion } from 'motion/react'
 import { webSerialSupported } from '../flipper/serial'
 import { connect } from '../state/actions'
 import { useStore } from '../state/store'
+import { LabIcon } from './LabIcon'
 import { Logo } from './Logo'
 import { Button } from './ui'
 
@@ -36,7 +37,8 @@ export function ConnectScreen() {
             Find apps built for another firmware API, duplicate copies and sideloaded builds, then clean them up safely.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Button tone="primary" icon={UsbIcon} disabled={!supported || busy} onClick={() => connect()} className="h-11 px-5 text-[15px]">
+            <Button tone="primary" disabled={!supported || busy} onClick={() => connect()} className="h-11 px-5 text-[15px]">
+              <LabIcon id="device" size={20} />
               {busy ? 'Connecting' : 'Connect Flipper'}
             </Button>
           </div>

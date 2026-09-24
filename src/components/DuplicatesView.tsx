@@ -73,7 +73,7 @@ export function DuplicatesView() {
                     </div>
                   </div>
                   <span className="hidden font-mono text-xs text-muted md:block">v{c.version || '?'}</span>
-                  <span className={`hidden font-mono text-xs md:block ${c.compat === 'ok' ? 'text-muted' : 'text-accent-ink'}`}>API {c.api || '?'}</span>
+                  <span className={`hidden font-mono text-xs md:block ${c.compat === 'ok' ? 'text-muted' : 'text-danger'}`}>API {c.api || '?'}</span>
                   <span className="hidden font-mono text-xs text-muted md:block">{formatSize(c.size)}</span>
                   {i > 0 && !isProtected(c) ? (
                     <Button

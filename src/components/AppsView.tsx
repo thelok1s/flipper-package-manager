@@ -218,7 +218,7 @@ function ListRow({ app, showFolder = true }: { app: AppRecord; showFolder?: bool
       </div>
       <div className="hidden truncate text-[13px] text-muted md:block">{showFolder ? app.folder || 'apps root' : app.fileName}</div>
       <div className="hidden font-mono text-xs text-muted md:block">{app.version && `v${app.version}`}</div>
-      <div className={`hidden font-mono text-xs md:block ${app.compat === 'ok' ? 'text-muted' : 'text-accent-ink'}`}>{app.api}</div>
+      <div className={`hidden font-mono text-xs md:block ${app.compat === 'ok' ? 'text-muted' : 'text-danger'}`}>{app.api}</div>
       <div className="text-right font-mono text-xs text-muted">{formatSize(app.size)}</div>
     </div>
   )

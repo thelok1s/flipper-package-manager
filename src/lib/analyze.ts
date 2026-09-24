@@ -51,7 +51,8 @@ export const COMPAT_LABEL: Record<Compat, string> = {
   unknown: 'Unreadable',
 }
 
-export const isOutdated = (c: Compat) => c === 'too-old' || c === 'too-new' || c === 'target'
+/** Any API or hardware mismatch, as flagged by the red badge. */
+export const isOutdated = (c: Compat) => c !== 'ok' && c !== 'unknown'
 
 /** "[LD2450] Motion tracker" -> ["LD2450"]. Community apps tag required add-on boards this way. */
 export function moduleTags(name: string): string[] {

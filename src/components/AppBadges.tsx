@@ -11,9 +11,8 @@ export function CompatBadge({ app, device }: { app: AppRecord; device?: string }
     target: 'Built for different Flipper hardware.',
     unknown: app.info.error ?? 'The manifest could not be read.',
   }[app.compat]
-  const serious = app.compat === 'target' || app.compat === 'unknown'
   return (
-    <Badge tone={serious ? 'danger' : 'neutral'} title={title}>
+    <Badge tone="danger" title={title}>
       <WarningIcon size={11} weight="bold" aria-hidden />
       {COMPAT_LABEL[app.compat]}
     </Badge>

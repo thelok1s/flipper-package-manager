@@ -9,6 +9,7 @@ import { DuplicatesView } from './components/DuplicatesView'
 import { ProgressStrip, Toasts } from './components/Feedback'
 import { FoldersView } from './components/FoldersView'
 import { Header } from './components/Header'
+import { LabSprite } from './components/LabIcon'
 import { HistoryView } from './components/HistoryView'
 import { Sidebar } from './components/Sidebar'
 import { webSerialSupported } from './flipper/serial'
@@ -92,6 +93,7 @@ export default function App() {
           {connected && <DetailDrawer />}
         </main>
       </div>
+      <LabSprite />
       <ConfirmHost />
       <Toasts />
     </MotionConfig>
