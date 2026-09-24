@@ -156,8 +156,8 @@ export function Sidebar() {
             setState((s) => ({ prefs: { ...s.prefs, onlyCapitalFolders: v } }))
             void scan()
           }}
-          label="Only scan capitalised folders"
-          hint="Skips all-lowercase and hidden folders in /ext/apps (iButton still counts). The firmware's internal assets folder is always skipped. Changing this rescans."
+          label="Hide non-app assets"
+          hint="Skips internal and lowercase folders in /ext/apps."
         />
       </div>
 
