@@ -42,8 +42,11 @@ export interface Prefs {
   protectSystem: boolean
   /** Skip top-level folders in /ext/apps that don't start with a capital letter. */
   onlyCapitalFolders: boolean
-  /** Parse manifests on the Flipper with its JS engine when available. */
-  fastScan: boolean
+  /**
+   * js: parse manifests on the Flipper with its JS engine (falls back to rpc when unavailable).
+   * rpc: copy each .fap over RPC and parse it here. The benchmark sets the faster one.
+   */
+  scanMethod: 'js' | 'rpc'
   theme: Theme
 }
 
@@ -84,6 +87,10 @@ export interface State {
   allowOfficialRemoval: boolean
   /** Whether the connected Flipper can run the JS fast scan; reset on every connection. */
   jsScan: 'unknown' | 'available' | 'unavailable'
+  /** Temporary benchmark state; while running, the app does no reading of its own. */
+  benchmark: { running: boolean; step: string; rows: import('./benchmark').BenchRow[] } | null
+  /** Last completed benchmark, persisted in localStorage. */
+  benchReport: import('./benchmark').BenchReport | null
   history: HistoryEntry[]
   notes: Map<string, string>
   op: { label: string; done: number; total: number } | null
@@ -98,7 +105,7 @@ export interface State {
 
 const PREFS_KEY = 'fpm.prefs.v1'
 const FILTERS_KEY = 'fpm.filters.v1'
-const defaultPrefs: Prefs = { view: 'grid', sort: 'name', sortDir: 1, protectSystem: true, onlyCapitalFolders: true, fastScan: true, theme: 'system' }
+const defaultPrefs: Prefs = { view: 'grid', sort: 'name', sortDir: 1, protectSystem: true, onlyCapitalFolders: true, scanMethod: 'js', theme: 'system' }
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -134,6 +141,8 @@ let state: State = {
   official: { status: 'idle', paths: new Set(), fileNames: new Set() },
   allowOfficialRemoval: false,
   jsScan: 'unknown',
+  benchmark: null,
+  benchReport: load<import('./benchmark').BenchReport | null>('fpm.benchmark.v1', null),
   history: [],
   notes: new Map(),
   op: null,

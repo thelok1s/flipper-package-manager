@@ -22,10 +22,12 @@ function runScript(files: Record<string, Uint8Array>, onlyCapital = true) {
       let pos = 0
       return {
         seekAbsolute: (o: number) => ((pos = o), true),
-        read: (_mode: string, n: number) => {
+        read: (mode: string, n: number) => {
+          // Binary reads leak on the real device; the script must only read strings.
+          if (mode !== 'ascii') throw new Error('binary read used')
           const out = bytes.slice(pos, pos + n)
           pos += out.length
-          return out.buffer
+          return String.fromCharCode(...out)
         },
         close: () => true,
       }
@@ -82,6 +84,18 @@ describe('fast scan script', () => {
     )
     expect(lines).toContain('FPM|D|/ext/apps/downloads')
     expect(lines.some((l) => l.includes('assets'))).toBe(false)
+  })
+
+  it('never uses binary reads, which this mJS does not free until the script ends', () => {
+    expect(buildScanScript(true)).not.toMatch(/read\("binary"/)
+  })
+
+  it('handles hundreds of apps', () => {
+    const files: Record<string, Uint8Array> = {}
+    for (let i = 0; i < 300; i++) files[`/ext/apps/Tools/app${i}.fap`] = buildFap({ name: `App ${i}`, apiMajor: 87, apiMinor: 1 })
+    const lines = runScript(files)
+    expect(lines.filter((l) => l.startsWith('FPM|F|')).length).toBe(300)
+    expect(lines.filter((l) => l.startsWith('FPM|F|')).every((l) => parseFastLine(l)?.kind === 'file' && !(parseFastLine(l) as { info: { error?: string } }).info.error)).toBe(true)
   })
 
   it('ignores CLI noise around the output', () => {

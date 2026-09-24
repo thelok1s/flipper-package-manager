@@ -4,71 +4,79 @@
  * section table and .fapmeta (about 1 KB of SD reads) instead of copying whole files over RPC.
  *
  * mJS is a restricted dialect: no closures (functions only see globals and arguments), no `new`,
- * no exceptions, `let` only. Keep the script to plain loops and helper functions.
+ * no exceptions, `let` only. Keep the script to plain loops and helper functions, and never read
+ * in "binary" mode (see the note inside the script).
  */
 import { parseManifest, type FapInfo } from './fap'
 
 export const FAST_SCAN_DIR = '/ext/.tmp/fpm'
 export const FAST_SCAN_PATH = `${FAST_SCAN_DIR}/scan.js`
 
-export function buildScanScript(onlyCapital: boolean): string {
+/** `limit` stops after that many apps; used by the benchmark. */
+export function buildScanScript(onlyCapital: boolean, limit = 1000000): string {
   return `// Flipper Package Manager fast scan. Safe to delete.
+// Reads use "ascii" strings on purpose: this mJS never frees ArrayBuffers ("binary" reads) until
+// the script ends, which runs the Flipper out of memory after ~100 apps. Strings are collected,
+// and charCodeAt returns the raw byte. Reads stay small because they land on an 8 KB stack.
 let storage = require("storage");
 let ONLY_CAP = ${onlyCapital ? 'true' : 'false'};
-let META = [46, 102, 97, 112, 109, 101, 116, 97, 0];
+let LIMIT = ${Math.max(0, Math.floor(limit))};
+let COUNT = 0;
+let META = ".fapmeta";
+let HEX = "0123456789abcdef";
 
-function u16(u, o) { return u[o] + u[o + 1] * 256; }
-function u32(u, o) { return u[o] + u[o + 1] * 256 + u[o + 2] * 65536 + u[o + 3] * 16777216; }
+function b(s, i) { return s.charCodeAt(i); }
+function u16(s, o) { return b(s, o) + b(s, o + 1) * 256; }
+function u32(s, o) { return b(s, o) + b(s, o + 1) * 256 + b(s, o + 2) * 65536 + b(s, o + 3) * 16777216; }
 
-function hex(u, n) {
-  let s = "";
-  for (let i = 0; i < n; i++) {
-    let b = u[i];
-    if (b < 16) { s = s + "0"; }
-    s = s + b.toString(16);
+function hex(s) {
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    let v = b(s, i);
+    // mJS maps at() to charCodeAt(), so take the digit with slice().
+    out = out + HEX.slice(v >> 4, (v >> 4) + 1) + HEX.slice(v & 15, (v & 15) + 1);
   }
-  return s;
+  return out;
 }
 
-function readAt(file, off, n) {
+function rd(file, off, n) {
   file.seekAbsolute(off);
-  return file.read("binary", n);
+  return file.read("ascii", n);
 }
 
-function isMeta(names, at, len) {
-  if (at + 9 > len) { return false; }
-  for (let i = 0; i < 9; i++) {
-    if (names[at + i] !== META[i]) { return false; }
+function isMeta(names, at) {
+  if (at + 9 > names.length) { return false; }
+  for (let i = 0; i < 8; i++) {
+    if (b(names, at + i) !== b(META, i)) { return false; }
   }
-  return true;
+  return b(names, at + 8) === 0;
 }
 
 function meta(path) {
   let file = storage.openFile(path, "r", "open_existing");
   if (file === undefined) { return "E:open"; }
   let result = "E:nometa";
-  let hb = readAt(file, 0, 52);
-  let h = Uint8Array(hb);
-  if (hb.byteLength < 52 || h[0] !== 127 || h[1] !== 69 || h[2] !== 76 || h[3] !== 70) {
+  let h = rd(file, 0, 52);
+  if (h.length < 52 || b(h, 0) !== 127 || b(h, 1) !== 69 || b(h, 2) !== 76 || b(h, 3) !== 70) {
     result = "E:notelf";
   } else {
     let shoff = u32(h, 32);
     let shent = u16(h, 46);
     let shnum = u16(h, 48);
     let shstr = u16(h, 50);
-    let tb = readAt(file, shoff, shent * shnum);
-    if (tb.byteLength < shent * shnum || shstr >= shnum) {
+    let st = rd(file, shoff + shstr * shent, 24);
+    if (shstr >= shnum || st.length < 24) {
       result = "E:table";
     } else {
-      let t = Uint8Array(tb);
-      let nb = readAt(file, u32(t, shstr * shent + 16), u32(t, shstr * shent + 20));
-      let names = Uint8Array(nb);
-      for (let i = 0; i < shnum; i++) {
-        if (isMeta(names, u32(t, i * shent), nb.byteLength)) {
-          let size = u32(t, i * shent + 20);
+      let nsize = u32(st, 20);
+      if (nsize > 256) { nsize = 256; }
+      let names = rd(file, u32(st, 16), nsize);
+      for (let i = 0; i < shnum && result === "E:nometa"; i++) {
+        let e = rd(file, shoff + i * shent, 24);
+        if (e.length === 24 && isMeta(names, u32(e, 0))) {
+          let size = u32(e, 20);
           if (size > 128) { size = 128; }
-          let mb = readAt(file, u32(t, i * shent + 16), size);
-          result = "M:" + hex(Uint8Array(mb), mb.byteLength);
+          result = "M:" + hex(rd(file, u32(e, 16), size));
         }
       }
     }
@@ -108,7 +116,7 @@ function walk(dir, top) {
     print("FPM|X|" + dir);
     return;
   }
-  for (let i = 0; i < entries.length; i++) {
+  for (let i = 0; i < entries.length && COUNT < LIMIT; i++) {
     let e = entries[i];
     let p = dir + "/" + e.path;
     if (e.isDirectory) {
@@ -117,6 +125,7 @@ function walk(dir, top) {
         walk(p, false);
       }
     } else if (isFap(e.path)) {
+      COUNT = COUNT + 1;
       print("FPM|F|" + p + "|" + num(e.size) + "|" + meta(p));
     }
   }

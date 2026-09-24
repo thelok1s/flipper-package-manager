@@ -150,10 +150,12 @@ describe('fast scan', () => {
             let pos = 0
             return bytes && {
               seekAbsolute: (o: number) => ((pos = o), true),
-              read: (_m: string, n: number) => {
+              read: (mode: string, n: number) => {
+                // Binary reads leak on the real device; the script must only read strings.
+                if (mode !== 'ascii') throw new Error('binary read used')
                 const out = bytes.slice(pos, pos + n)
                 pos += out.length
-                return out.buffer
+                return String.fromCharCode(...out)
               },
               close: () => true,
             }
@@ -192,7 +194,7 @@ describe('fast scan', () => {
 
   it('uses the on-device script when js is available and reads no .fap over RPC', async () => {
     const { device, reads } = jsDevice(files, true)
-    setState({ device, deviceInfo: await device.info(), jsScan: 'unknown', toasts: [], prefs: { ...getState().prefs, fastScan: true } })
+    setState({ device, deviceInfo: await device.info(), jsScan: 'unknown', toasts: [], prefs: { ...getState().prefs, scanMethod: 'js' } })
     await scan()
     const s = getState()
     expect(s.jsScan).toBe('available')
@@ -203,9 +205,32 @@ describe('fast scan', () => {
     expect(s.folders).toEqual(['', 'Games', 'GPIO'])
   })
 
+  it('benchmarks both methods, blocks scans meanwhile and makes the faster one the default', async () => {
+    const { runBenchmark } = await import('./benchmark')
+    const { device } = jsDevice(files, true)
+    setState({ device, deviceInfo: await device.info(), status: 'ready', op: null, benchmark: null, toasts: [], prefs: { ...getState().prefs, scanMethod: 'rpc' } })
+    const running = runBenchmark({ sizes: [1 as 10, 'all'] })
+    expect(getState().benchmark?.running).toBe(true)
+    const before = getState().scanned
+    await scan() // must be a no-op while the benchmark owns the device
+    expect(getState().scanned).toBe(before)
+    const report = await running
+    expect(report.rows.map((r) => [r.method, r.size, r.apps])).toEqual([
+      ['js', 1, 1],
+      ['rpc', 1, 1],
+      ['rpc', 'all', 2],
+      ['js', 'all', 2],
+    ])
+    expect(report.rows.every((r) => !r.error)).toBe(true)
+    expect(report.fastest).toBe('js') // the fake RPC read sleeps per file; the fake JS run does not
+    expect(getState().prefs.scanMethod).toBe('js')
+    expect(getState().benchReport).toEqual(report)
+    expect(getState().benchmark?.running).toBe(false)
+  })
+
   it('falls back to the standard scan when the firmware has no js command', async () => {
     const { device } = jsDevice(files, false)
-    setState({ device, deviceInfo: await device.info(), jsScan: 'unknown', toasts: [], prefs: { ...getState().prefs, fastScan: true } })
+    setState({ device, deviceInfo: await device.info(), jsScan: 'unknown', toasts: [], prefs: { ...getState().prefs, scanMethod: 'js' } })
     await scan()
     const s = getState()
     expect(s.jsScan).toBe('unavailable')
