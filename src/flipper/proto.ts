@@ -1,4 +1,4 @@
-import { Root, parse, Reader, type Type } from 'protobufjs'
+import { Root, parse, type Type } from 'protobufjs'
 
 // Protobuf definitions vendored from github.com/flipperdevices/flipperzero-protobuf.
 const sources = import.meta.glob('../proto/*.proto', {
@@ -29,21 +29,29 @@ export function encodeMain(commandId: number, content: string, payload: object, 
 
 /**
  * Pulls every complete length-delimited message off the front of `buffer`.
- * Returns the decoded messages and how many bytes they consumed.
+ * Returns the decoded messages and how many bytes they consumed. Frames are only decoded once
+ * fully received, so partial data never costs a failed decode.
  */
 export function decodeAvailable(buffer: Uint8Array): { messages: MainObject[]; consumed: number } {
-  const reader = Reader.create(buffer)
   const messages: MainObject[] = []
-  let consumed = 0
-  while (reader.pos < reader.len) {
-    try {
-      const message = Main.decodeDelimited(reader)
-      consumed = reader.pos
-      messages.push(Main.toObject(message, { longs: Number, enums: Number, oneofs: true }) as MainObject)
-    } catch {
-      // A partial frame; wait for more bytes.
-      break
+  let pos = 0
+  while (pos < buffer.length) {
+    // Varint length prefix.
+    let len = 0
+    let shift = 0
+    let p = pos
+    for (;;) {
+      if (p >= buffer.length) return { messages, consumed: pos }
+      const b = buffer[p++]
+      len += (b & 0x7f) * 2 ** shift
+      if (!(b & 0x80)) break
+      shift += 7
+      if (shift > 35) throw new Error('Corrupt RPC frame')
     }
+    if (p + len > buffer.length) break
+    const message = Main.decode(buffer.subarray(p, p + len))
+    messages.push(Main.toObject(message, { longs: Number, enums: Number, oneofs: true }) as MainObject)
+    pos = p + len
   }
-  return { messages, consumed }
+  return { messages, consumed: pos }
 }

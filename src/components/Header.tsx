@@ -43,33 +43,35 @@ export function Header() {
           <span className="hidden text-[15px] font-semibold tracking-tight text-ink sm:block">Flipper App Manager</span>
         </div>
 
-        <nav aria-label="Sections" className="ml-2 flex items-center gap-0.5 overflow-x-auto">
-          {TABS.map((t) => {
-            const active = tab === t.id
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setState({ tab: t.id })}
-                aria-current={active ? 'page' : undefined}
-                className={`relative flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm transition-colors ${
-                  active ? 'text-ink' : 'text-muted hover:text-ink'
-                }`}
-              >
-                {active && (
-                  <motion.span
-                    layoutId="tab-pill"
-                    className="absolute inset-0 rounded-lg bg-surface-2"
-                    transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                  />
-                )}
-                <t.icon size={16} weight={active ? 'bold' : 'regular'} className="relative" aria-hidden />
-                <span className="relative hidden md:inline">{t.label}</span>
-                {!!counts[t.id] && <span className="relative font-mono text-[11px] text-muted">{counts[t.id]}</span>}
-              </button>
-            )
-          })}
-        </nav>
+        {device && (
+          <nav aria-label="Sections" className="ml-2 flex items-center gap-0.5 overflow-x-auto">
+            {TABS.map((t) => {
+              const active = tab === t.id
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setState({ tab: t.id })}
+                  aria-current={active ? 'page' : undefined}
+                  className={`relative flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm transition-colors ${
+                    active ? 'text-ink' : 'text-muted hover:text-ink'
+                  }`}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="tab-pill"
+                      className="absolute inset-0 rounded-lg bg-surface-2"
+                      transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                    />
+                  )}
+                  <t.icon size={16} weight={active ? 'bold' : 'regular'} className="relative" aria-hidden />
+                  <span className="relative hidden md:inline">{t.label}</span>
+                  {!!counts[t.id] && <span className="relative font-mono text-[11px] text-muted">{counts[t.id]}</span>}
+                </button>
+              )
+            })}
+          </nav>
+        )}
 
         <div className="ml-auto flex items-center gap-1.5">
           {info && (

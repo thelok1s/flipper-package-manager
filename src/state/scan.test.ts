@@ -79,9 +79,31 @@ describe('scan', () => {
     expect(s.apps.find((a) => a.appId === 'broken')?.info.error).toMatch(/Could not read/)
     expect(s.apps.find((a) => a.appId === 'radar')?.compat).toBe('too-old')
 
+    // Each unreadable file is retried once.
+    expect(calls.reads.filter((p) => p.endsWith('broken.fap'))).toHaveLength(2)
+
     // Second scan hits the cache: only the file that failed last time is read again.
     calls.reads.length = 0
     await scan()
-    expect(calls.reads.filter((p) => p.endsWith('.fap'))).toEqual(['/ext/apps/GPIO/broken.fap'])
+    expect(new Set(calls.reads.filter((p) => p.endsWith('.fap')))).toEqual(new Set(['/ext/apps/GPIO/broken.fap']))
+  })
+
+  it('stops after three unreadable files in a row and keeps what it read', async () => {
+    const files = {
+      '/ext/apps/a.fap': fap('Alpha'),
+      '/ext/apps/b.fap': fap('Bravo'),
+      '/ext/apps/c.fap': fap('Charlie'),
+      '/ext/apps/d.fap': fap('Delta'),
+      '/ext/apps/e.fap': fap('Echo'),
+    }
+    const { device } = fakeDevice(files)
+    const read = device.read.bind(device)
+    device.read = async (path, ...rest) => (/[bcd]\.fap$/.test(path) ? Promise.reject(new RpcError('TIMEOUT', 'storageReadRequest')) : read(path, ...rest))
+    setState({ device, deviceInfo: await device.info(), toasts: [] })
+    await scan()
+    const s = getState()
+    expect(s.status).toBe('ready')
+    expect(s.apps.map((a) => a.name)).toEqual(['Alpha', 'b', 'c'])
+    expect(s.toasts.some((t) => /stopped answering/.test(t.text))).toBe(true)
   })
 })

@@ -108,9 +108,10 @@ export function DetailDrawer() {
           </div>
 
           {app.compat !== 'ok' && app.compat !== 'unknown' && (
-            <p className="mx-5 mt-4 rounded-lg bg-danger-soft px-3 py-2.5 text-[13px] leading-relaxed text-danger">
-              {COMPAT_LABEL[app.compat]}: built against API {app.api}, the Flipper runs {deviceApi}.
-              {app.catalog ? ' The catalog has a build for this firmware.' : ' Rebuild it with ufbt or find a newer release.'}
+            <p className="mx-5 mt-4 rounded-lg bg-surface-2 px-3 py-2.5 text-[13px] leading-relaxed text-muted">
+              <span className="font-medium text-ink">{COMPAT_LABEL[app.compat]}.</span> Built against API {app.api}, this Flipper runs {deviceApi}.
+              {app.compat === 'too-old' && ' Older apps usually still open and work, but some crash if they use functions that changed.'}
+              {app.catalog ? ' The catalog has a build for this firmware.' : ''}
             </p>
           )}
           {app.info.error && <p className="mx-5 mt-4 rounded-lg bg-danger-soft px-3 py-2.5 text-[13px] text-danger">Could not read manifest: {app.info.error}</p>}
@@ -129,7 +130,7 @@ export function DetailDrawer() {
           <dl className="mt-5 border-t border-line px-5 py-3">
             <Row label="App version">{app.version ? <span className="font-mono">{app.version}</span> : 'unknown'}</Row>
             <Row label="Built for API">
-              <span className={`font-mono ${app.compat === 'ok' ? '' : 'text-danger'}`}>{app.api || 'unknown'}</span>
+              <span className={`font-mono ${app.compat === 'ok' ? '' : 'text-accent-ink'}`}>{app.api || 'unknown'}</span>
               {deviceApi && <span className="text-muted"> (device {deviceApi})</span>}
             </Row>
             <Row label="Target">

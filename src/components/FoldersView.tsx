@@ -100,7 +100,7 @@ function AppTile({ app }: { app: AppRecord }) {
         dragging ? 'opacity-40' : ''
       } ${checked ? 'border-accent bg-accent-soft/40' : 'border-transparent hover:border-line hover:bg-surface'} ${locked ? '' : 'active:cursor-grabbing'}`}
     >
-      <AppIcon pixels={app.info.manifest?.icon} size={52} dim={app.compat === 'too-old' || app.compat === 'too-new'} />
+      <AppIcon pixels={app.info.manifest?.icon} size={52} />
       <span className="flex w-full items-center gap-1 text-sm font-medium text-ink">
         {locked && <LockSimpleIcon size={12} className="shrink-0 text-muted" aria-label="Protected" />}
         <span className="truncate">{app.name}</span>

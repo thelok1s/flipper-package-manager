@@ -179,7 +179,7 @@ function GridItem({ app, index }: { app: AppRecord; index: number }) {
       <div className={`absolute right-2 top-2 ${isChecked ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'}`}>
         <Checkbox checked={isChecked} label={`Select ${app.name}`} onClick={(e) => toggle(app.path, e)} />
       </div>
-      <AppIcon pixels={app.info.manifest?.icon} size={52} dim={app.compat === 'too-old' || app.compat === 'too-new'} />
+      <AppIcon pixels={app.info.manifest?.icon} size={52} />
       <div className="min-w-0">
         <button type="button" className="block w-full truncate text-left text-sm font-medium text-ink" title={app.name}>
           {app.name}
@@ -209,7 +209,7 @@ function ListRow({ app, showFolder = true }: { app: AppRecord; showFolder?: bool
       }`}
     >
       <Checkbox checked={isChecked} label={`Select ${app.name}`} onClick={(e) => toggle(app.path, e)} />
-      <AppIcon pixels={app.info.manifest?.icon} size={32} dim={app.compat === 'too-old' || app.compat === 'too-new'} />
+      <AppIcon pixels={app.info.manifest?.icon} size={32} />
       <div className="min-w-0">
         <div className="truncate text-sm font-medium text-ink">{app.name}</div>
         <div className="mt-0.5">
@@ -218,7 +218,7 @@ function ListRow({ app, showFolder = true }: { app: AppRecord; showFolder?: bool
       </div>
       <div className="hidden truncate text-[13px] text-muted md:block">{showFolder ? app.folder || 'apps root' : app.fileName}</div>
       <div className="hidden font-mono text-xs text-muted md:block">{app.version && `v${app.version}`}</div>
-      <div className={`hidden font-mono text-xs md:block ${app.compat === 'ok' ? 'text-muted' : 'text-danger'}`}>{app.api}</div>
+      <div className={`hidden font-mono text-xs md:block ${app.compat === 'ok' ? 'text-muted' : 'text-accent-ink'}`}>{app.api}</div>
       <div className="text-right font-mono text-xs text-muted">{formatSize(app.size)}</div>
     </div>
   )

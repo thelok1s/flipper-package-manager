@@ -40,7 +40,7 @@ export default function App() {
     if (webSerialSupported()) void connect(true)
   }, [])
 
-  const needsDevice = tab !== 'history' && !connected
+  const needsDevice = !connected
 
   return (
     <MotionConfig reducedMotion="user">

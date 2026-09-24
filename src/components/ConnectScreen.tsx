@@ -33,7 +33,7 @@ export function ConnectScreen() {
             Sort out every app on your Flipper.
           </h1>
           <p className="mt-5 max-w-[46ch] text-base leading-relaxed text-muted">
-            Find apps that won't launch on your firmware, duplicate copies and sideloaded builds, then clean them up safely.
+            Find apps built for another firmware API, duplicate copies and sideloaded builds, then clean them up safely.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Button tone="primary" icon={UsbIcon} disabled={!supported || busy} onClick={() => connect()} className="h-11 px-5 text-[15px]">

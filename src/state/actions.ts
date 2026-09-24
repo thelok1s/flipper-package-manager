@@ -122,7 +122,10 @@ async function readFims(d: FlipperDevice): Promise<Fim[]> {
   return fims
 }
 
-const FLUSH_MS = 250
+/** How often the app list re-renders while apps stream in. Rendering competes with serial reads. */
+const FLUSH_MS = 1000
+/** Consecutive unreadable files before the scan stops instead of hammering a struggling device. */
+const MAX_FAILURES_IN_A_ROW = 3
 
 export async function scan() {
   const d = requireDevice()
@@ -209,7 +212,7 @@ export async function scan() {
     const started = Date.now()
     let lastProgress = 0
     const progress = (i: number, f: PendingFile, inFile: number) => {
-      if (Date.now() - lastProgress < 150 && inFile) return
+      if (Date.now() - lastProgress < 300 && inFile) return
       lastProgress = Date.now()
       const done = bytesDone + inFile
       const elapsed = (Date.now() - started) / 1000
@@ -218,15 +221,24 @@ export async function scan() {
         scan: { phase: 'Reading apps', done: i, total: toRead.length, current: f.path, bytesDone: done, bytesTotal, etaSec },
       })
     }
+    let failuresInARow = 0
     for (const [i, f] of toRead.entries()) {
       progress(i, f, 0)
       let info
-      try {
-        info = parseFap(await d.read(f.path, (n) => progress(i, f, n), f.size))
-        await fapCache.put(f.key, info).catch(() => undefined)
-      } catch (e) {
-        if (!getState().device) throw e
-        info = { manifest: null, urls: [], sections: [], error: `Could not read: ${errorText(e)}` }
+      for (let attempt = 0; !info; attempt++) {
+        try {
+          info = parseFap(await d.read(f.path, (n) => progress(i, f, n), f.size))
+          await fapCache.put(f.key, info).catch(() => undefined)
+          failuresInARow = 0
+        } catch (e) {
+          if (!getState().device) throw e
+          // One retry: the transport waits for the line to go quiet before sending it.
+          if (attempt === 0) continue
+          info = { manifest: null, urls: [], sections: [], error: `Could not read: ${errorText(e)}` }
+          if (++failuresInARow >= MAX_FAILURES_IN_A_ROW) {
+            throw new Error(`the Flipper stopped answering after ${scanned.length} apps. Reconnect it and scan again; apps already read are cached`)
+          }
+        }
       }
       bytesDone += f.size
       scanned.push({ path: f.path, size: f.size, mtime: f.mtime, info })

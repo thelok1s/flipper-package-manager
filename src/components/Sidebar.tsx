@@ -84,7 +84,7 @@ export function Sidebar() {
         <SectionLabel>Needs attention</SectionLabel>
         <div className="flex flex-wrap gap-1.5">
           <Chip active={filters.onlyOutdated} count={stats.outdated} onClick={() => set({ onlyOutdated: !filters.onlyOutdated })}>
-            Won't launch
+            API mismatch
           </Chip>
           <Chip active={filters.onlyDuplicates} count={stats.dups} onClick={() => set({ onlyDuplicates: !filters.onlyDuplicates })}>
             Duplicates

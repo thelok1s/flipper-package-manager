@@ -44,10 +44,10 @@ export function checkCompat(m: FapManifest | null, device: DeviceInfo | null): C
 
 export const COMPAT_LABEL: Record<Compat, string> = {
   ok: 'Compatible',
-  'too-old': 'App too old',
-  'too-new': 'Needs newer firmware',
-  'newer-minor': 'Built for newer API',
-  target: 'Wrong hardware target',
+  'too-old': 'Older API',
+  'too-new': 'Newer API',
+  'newer-minor': 'Newer API',
+  target: 'Other hardware',
   unknown: 'Unreadable',
 }
 

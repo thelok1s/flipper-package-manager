@@ -13,6 +13,10 @@ const RPC_MARKER = 'start_rpc_session\r\n'
 const CHUNK = 512
 /** How long a command may go without any reply before it is treated as lost. */
 const IDLE_TIMEOUT = 8000
+/** SD reads can stall for a while on a busy or fragmented card. */
+const READ_TIMEOUT = 20000
+/** After a timeout, the line must be silent this long before the next command is sent. */
+const QUIET_MS = 1500
 /** Listing a folder full of large files can take a while on a slow SD card. */
 const LIST_TIMEOUT = 30000
 
@@ -53,6 +57,13 @@ export class SerialFlipper implements FlipperDevice {
   private pending = new Map<number, Pending>()
   private queue: Promise<unknown> = Promise.resolve()
   private closed = false
+  private lastRx = 0
+  /**
+   * Set when a command times out. The Flipper answers commands strictly in order, so it may still be
+   * streaming the abandoned reply; sending more requests on top of it makes every later command time
+   * out and can overflow the device. The next command waits for silence and a ping first.
+   */
+  private needsResync = false
 
   private constructor(port: SerialPort) {
     this.port = port
@@ -112,7 +123,10 @@ export class SerialFlipper implements FlipperDevice {
       for (;;) {
         const { value, done } = await reader.read()
         if (done) break
-        if (value?.length) this.ingest(value)
+        if (value?.length) {
+          this.lastRx = Date.now()
+          this.ingest(value)
+        }
       }
     } catch {
       // Device lost; handled by teardown.
@@ -139,7 +153,16 @@ export class SerialFlipper implements FlipperDevice {
       this.markerSeen?.()
     }
 
-    const { messages, consumed } = decodeAvailable(this.buffer)
+    let decoded: ReturnType<typeof decodeAvailable>
+    try {
+      decoded = decodeAvailable(this.buffer)
+    } catch {
+      // Garbage on the line: drop it and let the next command resynchronise.
+      this.buffer = new Uint8Array(0)
+      this.needsResync = true
+      return
+    }
+    const { messages, consumed } = decoded
     if (consumed) this.buffer = this.buffer.slice(consumed)
     for (const m of messages) this.dispatch(m)
   }
@@ -169,6 +192,7 @@ export class SerialFlipper implements FlipperDevice {
       const p = this.pending.get(id)
       if (!p) return
       this.pending.delete(id)
+      this.needsResync = true
       p.reject(new RpcError('TIMEOUT', p.content))
     }, ms)
   }
@@ -178,8 +202,28 @@ export class SerialFlipper implements FlipperDevice {
     await this.writer.write(bytes)
   }
 
-  /** Serialises commands; the Flipper handles one RPC request at a time comfortably. */
-  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+  /** Waits until the Flipper has finished any abandoned reply, then checks it still answers. */
+  private async resync() {
+    const deadline = Date.now() + 60000
+    while (Date.now() - this.lastRx < QUIET_MS) {
+      if (this.closed) throw new Error('Not connected')
+      if (Date.now() > deadline) throw new RpcError('DEVICE_BUSY', 'resync')
+      await sleep(200)
+    }
+    this.buffer = new Uint8Array(0)
+    const id = this.nextId++
+    const response = this.expect(id, 'systemPingRequest', { timeoutMs: 5000 })
+    await this.writeRaw(encodeMain(id, 'systemPingRequest', {}))
+    await response
+    this.needsResync = false
+  }
+
+  /** Serialises commands; the Flipper handles one RPC request at a time. */
+  private enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    const task = async () => {
+      if (this.needsResync) await this.resync()
+      return fn()
+    }
     const run = this.queue.then(task, task)
     this.queue = run.catch(() => undefined)
     return run
@@ -241,7 +285,7 @@ export class SerialFlipper implements FlipperDevice {
 
   async read(path: string, onProgress?: ProgressFn, knownSize?: number): Promise<Uint8Array> {
     const size = onProgress ? (knownSize ?? (await this.stat(path))?.size ?? 0) : 0
-    const chunks = await this.call('storageReadRequest', { path }, { onChunk: (n) => onProgress?.(Math.min(n * CHUNK, size), size) })
+    const chunks = await this.call('storageReadRequest', { path }, { timeoutMs: READ_TIMEOUT, onChunk: (n) => onProgress?.(Math.min(n * CHUNK, size), size) })
     const parts = chunks.map((c) => (c.file?.data as Uint8Array | undefined) ?? new Uint8Array(0))
     const out = new Uint8Array(parts.reduce((s, p) => s + p.length, 0))
     let offset = 0

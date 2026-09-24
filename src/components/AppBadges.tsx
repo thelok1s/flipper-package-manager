@@ -1,19 +1,19 @@
 import { LockSimpleIcon, StorefrontIcon, WarningIcon } from '@phosphor-icons/react'
-import { COMPAT_LABEL, isOutdated, type AppRecord } from '../lib/analyze'
+import { COMPAT_LABEL, type AppRecord } from '../lib/analyze'
 import { Badge } from './ui'
 
 export function CompatBadge({ app, device }: { app: AppRecord; device?: string }) {
   if (app.compat === 'ok') return null
-  const title =
-    app.compat === 'too-old'
-      ? `Built for API ${app.api}. This firmware is on ${device}, so the Flipper refuses to launch it.`
-      : app.compat === 'too-new'
-        ? `Built for API ${app.api}, newer than this firmware (${device}). Update the firmware or reinstall an older build.`
-        : app.compat === 'newer-minor'
-          ? `Built for API ${app.api}, slightly newer than ${device}. It may fail if it uses newer functions.`
-          : undefined
+  const title = {
+    'too-old': `Built for API ${app.api}, this Flipper runs ${device}. Usually still opens and works; some apps crash if they use functions that changed.`,
+    'too-new': `Built for API ${app.api}, newer than this firmware (${device}). It may not open until the firmware is updated.`,
+    'newer-minor': `Built for API ${app.api}, slightly newer than ${device}. It may fail if it uses functions this firmware lacks.`,
+    target: 'Built for different Flipper hardware.',
+    unknown: app.info.error ?? 'The manifest could not be read.',
+  }[app.compat]
+  const serious = app.compat === 'target' || app.compat === 'unknown'
   return (
-    <Badge tone={isOutdated(app.compat) || app.compat === 'unknown' ? 'danger' : 'neutral'} title={title}>
+    <Badge tone={serious ? 'danger' : 'neutral'} title={title}>
       <WarningIcon size={11} weight="bold" aria-hidden />
       {COMPAT_LABEL[app.compat]}
     </Badge>
