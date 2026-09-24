@@ -6,7 +6,13 @@ import type { Fim } from './manifests'
 import { APPS_ROOT, basename, dirname } from './manifests'
 
 export type Compat = 'ok' | 'too-old' | 'too-new' | 'newer-minor' | 'target' | 'unknown'
-export type Origin = 'system' | 'market' | 'sideloaded'
+/**
+ * official: ships with official Flipper firmware (per the release resources manifest).
+ * firmware: installed by the firmware on this device (its /ext/Manifest), e.g. extras a fork adds.
+ * market: installed from the Flipper catalog (has a .fim).
+ * sideloaded: anything else.
+ */
+export type Origin = 'official' | 'firmware' | 'market' | 'sideloaded'
 
 export interface AppRecord {
   path: string
@@ -68,6 +74,7 @@ export const normalizeName = (s: string) =>
 interface BuildContext {
   device: DeviceInfo | null
   systemPaths: Map<string, string>
+  official: { paths: Set<string>; fileNames: Set<string> } | null
   fims: Fim[]
   catalog: Map<string, CatalogApp> | null
   catalogByName: Map<string, CatalogApp> | null
@@ -85,7 +92,10 @@ export function buildRecord(
   const name = m?.name || appId
   const lower = file.path.toLowerCase()
   const fim = ctx.fims.find((f) => f.path.toLowerCase() === lower)
-  const origin: Origin = ctx.systemPaths.has(lower) ? 'system' : fim ? 'market' : 'sideloaded'
+  const onDevice = ctx.systemPaths.has(lower)
+  // A fork may move an official app to another folder; its firmware manifest still lists it.
+  const official = !!ctx.official && (ctx.official.paths.has(lower) || (onDevice && ctx.official.fileNames.has(fileName.toLowerCase())))
+  const origin: Origin = official ? 'official' : onDevice ? 'firmware' : fim ? 'market' : 'sideloaded'
   const version = m ? `${m.versionMajor}.${m.versionMinor}` : ''
   const catalog = ctx.catalog?.get(appId.toLowerCase()) ?? ctx.catalogByName?.get(normalizeName(name))
   return {
@@ -109,7 +119,7 @@ export function buildRecord(
   }
 }
 
-const ORIGIN_RANK: Record<Origin, number> = { system: 0, market: 1, sideloaded: 2 }
+const ORIGIN_RANK: Record<Origin, number> = { official: 0, firmware: 1, market: 2, sideloaded: 3 }
 const COMPAT_RANK: Record<Compat, number> = { ok: 0, 'newer-minor': 1, unknown: 2, target: 3, 'too-new': 3, 'too-old': 4 }
 
 /** Best copy first: loads on this firmware, newest version, managed install, newest API. */

@@ -107,3 +107,17 @@ describe('scan', () => {
     expect(s.toasts.some((t) => /stopped answering/.test(t.text))).toBe(true)
   })
 })
+
+describe('folder filtering', () => {
+  it('always skips assets and, by default, lowercase top-level folders', async () => {
+    const { skipTopFolder } = await import('./actions')
+    expect(skipTopFolder('assets', false)).toBe(true)
+    expect(skipTopFolder('Games', true)).toBe(false)
+    expect(skipTopFolder('GPIO', true)).toBe(false)
+    expect(skipTopFolder('Sub-GHz', true)).toBe(false)
+    expect(skipTopFolder('iButton', true)).toBe(false)
+    expect(skipTopFolder('downloads', true)).toBe(true)
+    expect(skipTopFolder('.cache', true)).toBe(true)
+    expect(skipTopFolder('downloads', false)).toBe(false)
+  })
+})

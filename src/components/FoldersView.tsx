@@ -95,7 +95,7 @@ function AppTile({ app }: { app: AppRecord }) {
       }}
       onDragEnd={() => setDragging(false)}
       onClick={() => setState({ selected: app.path })}
-      title={locked ? 'Protected system app, cannot be moved' : 'Drag onto a folder to move'}
+      title={locked ? `Protected ${app.origin} app, cannot be moved` : 'Drag onto a folder to move'}
       className={`group relative flex cursor-pointer flex-col items-start gap-2 rounded-lg border p-3 transition-[opacity,background-color] ${
         dragging ? 'opacity-40' : ''
       } ${checked ? 'border-accent bg-accent-soft/40' : 'border-transparent hover:border-line hover:bg-surface'} ${locked ? '' : 'active:cursor-grabbing'}`}

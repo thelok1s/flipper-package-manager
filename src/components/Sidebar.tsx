@@ -1,12 +1,14 @@
 import { MagnifyingGlassIcon, XIcon } from '@phosphor-icons/react'
 import { useMemo } from 'react'
 import { emptyFilters, isOutdated, type Filters, type Origin } from '../lib/analyze'
-import { loadCatalog } from '../state/actions'
+import { loadCatalog, loadOfficial, scan } from '../state/actions'
 import { setState, useStore } from '../state/store'
+import { ask } from './Confirm'
 import { Chip, SectionLabel, Switch } from './ui'
 
 const ORIGINS: { id: Origin; label: string }[] = [
-  { id: 'system', label: 'System' },
+  { id: 'official', label: 'Official' },
+  { id: 'firmware', label: 'Firmware' },
   { id: 'market', label: 'Catalog' },
   { id: 'sideloaded', label: 'Sideloaded' },
 ]
@@ -17,11 +19,32 @@ export function Sidebar() {
   const apps = useStore((s) => s.apps)
   const filters = useStore((s) => s.filters)
   const protectSystem = useStore((s) => s.prefs.protectSystem)
+  const onlyCapital = useStore((s) => s.prefs.onlyCapitalFolders)
+  const scanning = useStore((s) => s.status === 'scanning')
   const catalog = useStore((s) => s.catalog)
+  const official = useStore((s) => s.official)
+  const allowOfficial = useStore((s) => s.allowOfficialRemoval)
+  const target = useStore((s) => s.deviceInfo?.target ?? 7)
+
+  const toggleOfficial = async (on: boolean) => {
+    if (!on) return setState({ allowOfficialRemoval: false })
+    const ok = await ask({
+      title: 'Allow removing official apps?',
+      body: (
+        <>
+          Official apps such as NFC, Sub-GHz, Infrared and Bad USB are core Flipper features. Without them the matching menu entries stop working
+          until you reinstall the firmware or restore them from History. This override lasts until you reload the page.
+        </>
+      ),
+      confirmLabel: 'Allow removal',
+      tone: 'danger',
+    })
+    if (ok) setState({ allowOfficialRemoval: true })
+  }
   const set = (patch: Partial<Filters>) => setState((s) => ({ filters: { ...s.filters, ...patch } }))
 
   const stats = useMemo(() => {
-    const origins = { system: 0, market: 0, sideloaded: 0 } as Record<Origin, number>
+    const origins: Record<Origin, number> = { official: 0, firmware: 0, market: 0, sideloaded: 0 }
     const modules = new Map<string, number>()
     const folders = new Map<string, number>()
     let outdated = 0
@@ -127,11 +150,43 @@ export function Sidebar() {
 
       <div className="border-t border-line pt-4">
         <Switch
+          checked={onlyCapital}
+          onChange={(v) => {
+            if (scanning) return
+            setState((s) => ({ prefs: { ...s.prefs, onlyCapitalFolders: v } }))
+            void scan()
+          }}
+          label="Only scan capitalised folders"
+          hint="Skips all-lowercase and hidden folders in /ext/apps (iButton still counts). The firmware's internal assets folder is always skipped. Changing this rescans."
+        />
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-line pt-4">
+        <Switch
           checked={protectSystem}
           onChange={(v) => setState((s) => ({ prefs: { ...s.prefs, protectSystem: v } }))}
-          label="Protect system apps"
-          hint="Apps listed in /ext/Manifest came with the firmware. Protected apps can't be deleted or moved."
+          label="Protect firmware apps"
+          hint="Installed by this device's firmware update (listed in /ext/Manifest). Protected apps can't be deleted or moved."
         />
+        <div className={allowOfficial ? 'rounded-lg bg-danger-soft p-2 -m-2' : ''}>
+          <Switch
+            checked={allowOfficial}
+            onChange={toggleOfficial}
+            label="Allow removing official apps"
+            hint={
+              official.status === 'ready'
+                ? `Core apps from official firmware ${official.version} (${official.paths.size}). Off again after a reload.`
+                : official.status === 'loading'
+                  ? 'Loading the official app list'
+                  : 'Official app list unavailable, so no app is marked official.'
+            }
+          />
+          {official.status === 'error' && (
+            <button type="button" className="text-xs text-accent-ink underline" onClick={() => loadOfficial(target)}>
+              Retry loading the list
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mt-auto text-xs leading-relaxed text-muted">

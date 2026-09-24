@@ -69,7 +69,8 @@ export function DetailDrawer() {
   }, [])
 
   const deviceApi = info ? `${info.apiMajor}.${info.apiMinor}` : undefined
-  const locked = app ? isProtected(app) : false
+  const locked = useStore(() => (app ? isProtected(app) : false))
+  const lockReason = app?.origin === 'official' ? 'Official app. Allow removing official apps in the sidebar first.' : 'Firmware app, protected in the sidebar'
 
   const onReplace = async () => {
     if (!app?.catalog || !info) return
@@ -121,12 +122,12 @@ export function DetailDrawer() {
           {app.info.error && <p className="mx-5 mt-4 rounded-lg bg-danger-soft px-3 py-2.5 text-[13px] text-danger">Could not read manifest: {app.info.error}</p>}
 
           <div className="mt-4 flex flex-wrap gap-2 px-5">
-            {app.catalog && (app.origin !== 'market' || app.updateAvailable || app.compat !== 'ok') && app.origin !== 'system' && (
+            {app.catalog && (app.origin !== 'market' || app.updateAvailable || app.compat !== 'ok') && app.origin !== 'official' && app.origin !== 'firmware' && (
               <Button tone="primary" icon={DownloadSimpleIcon} disabled={busy} onClick={onReplace}>
                 {app.origin === 'market' ? 'Update from catalog' : 'Replace with catalog'}
               </Button>
             )}
-            <Button tone="danger" icon={TrashIcon} disabled={locked || busy} onClick={() => confirmDelete([app.path])} title={locked ? 'Protected system app' : undefined}>
+            <Button tone="danger" icon={TrashIcon} disabled={locked || busy} onClick={() => confirmDelete([app.path])} title={locked ? lockReason : undefined}>
               Delete
             </Button>
           </div>

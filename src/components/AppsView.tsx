@@ -35,21 +35,37 @@ const VIEWS: { id: ViewMode; label: string; icon: typeof RowsIcon }[] = [
 
 export async function confirmDelete(paths: string[]) {
   const apps = getState().apps.filter((a) => paths.includes(a.path))
-  const protectedCount = apps.filter(isProtected).length
-  const n = apps.length - protectedCount
+  const deletable = apps.filter((a) => !isProtected(a))
+  const protectedCount = apps.length - deletable.length
+  const n = deletable.length
   if (!n) {
-    await ask({ title: 'Nothing to delete', body: 'These are protected system apps. Turn off protection in the sidebar first.', confirmLabel: 'OK' })
+    await ask({
+      title: 'Nothing to delete',
+      body: 'These apps are protected. Official apps need "Allow removing official apps" in the sidebar; firmware apps need their protection switched off.',
+      confirmLabel: 'OK',
+    })
     return
   }
+  const official = deletable.filter((a) => a.origin === 'official')
   const ok = await ask({
-    title: n === 1 ? `Delete ${apps.find((a) => !isProtected(a))!.name}?` : `Delete ${n} apps?`,
+    title: official.length
+      ? `Delete ${official.length === 1 ? 'an official app' : `${official.length} official apps`}?`
+      : n === 1
+        ? `Delete ${deletable[0].name}?`
+        : `Delete ${n} apps?`,
     body: (
       <>
-        A copy of each .fap is kept in this browser, so you can restore it from History.
-        {protectedCount > 0 && ` ${protectedCount} protected system app${protectedCount === 1 ? '' : 's'} will be skipped.`}
+        {official.length > 0 && (
+          <span className="mb-2 block rounded-lg bg-danger-soft px-3 py-2 text-danger">
+            {official.map((a) => a.name).join(', ')} {official.length === 1 ? 'is a core app' : 'are core apps'} of the Flipper firmware. The matching
+            features stop working until the app is restored or the firmware is reinstalled.
+          </span>
+        )}
+        {n > official.length && `${n} app${n === 1 ? '' : 's'} in total. `}A copy of each .fap is kept in this browser, so you can restore it from History.
+        {protectedCount > 0 && ` ${protectedCount} protected app${protectedCount === 1 ? '' : 's'} will be skipped.`}
       </>
     ),
-    confirmLabel: 'Delete',
+    confirmLabel: official.length ? 'Delete official apps' : 'Delete',
     tone: 'danger',
   })
   if (ok) await deleteApps(paths)

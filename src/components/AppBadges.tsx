@@ -1,4 +1,4 @@
-import { LockSimpleIcon, StorefrontIcon, WarningIcon } from '@phosphor-icons/react'
+import { LockSimpleIcon, ShieldCheckIcon, StorefrontIcon, WarningIcon } from '@phosphor-icons/react'
 import { COMPAT_LABEL, type AppRecord } from '../lib/analyze'
 import { Badge } from './ui'
 
@@ -19,12 +19,20 @@ export function CompatBadge({ app, device }: { app: AppRecord; device?: string }
   )
 }
 
+/** Severity, highest first: Official (solid), Firmware (outlined lock), Catalog (tinted), Sideloaded (plain). */
 export function OriginBadge({ app }: { app: AppRecord }) {
-  if (app.origin === 'system')
+  if (app.origin === 'official')
     return (
-      <Badge title="Shipped with the firmware (listed in /ext/Manifest)">
+      <Badge tone="strong" title="Ships with official Flipper firmware. Removing it needs an explicit override.">
+        <ShieldCheckIcon size={11} weight="bold" aria-hidden />
+        Official
+      </Badge>
+    )
+  if (app.origin === 'firmware')
+    return (
+      <Badge title="Installed by this device's firmware (listed in /ext/Manifest)">
         <LockSimpleIcon size={11} weight="bold" aria-hidden />
-        System
+        Firmware
       </Badge>
     )
   if (app.origin === 'market')

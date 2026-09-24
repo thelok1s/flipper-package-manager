@@ -98,8 +98,9 @@ export function Switch({ checked, onChange, label, hint }: { checked: boolean; o
   )
 }
 
-export function Badge({ tone = 'neutral', children, title }: { tone?: 'neutral' | 'accent' | 'danger'; children: ReactNode; title?: string }) {
+export function Badge({ tone = 'neutral', children, title }: { tone?: 'neutral' | 'accent' | 'danger' | 'strong'; children: ReactNode; title?: string }) {
   const cls = {
+    strong: 'bg-accent text-[#1b1206]',
     neutral: 'bg-surface-2 text-muted',
     accent: 'bg-accent-soft text-accent-ink',
     danger: 'bg-danger-soft text-danger',

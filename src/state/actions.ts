@@ -4,6 +4,7 @@ import { buildRecord, markDuplicates, normalizeName, type AppRecord } from '../l
 import { downloadBuild, fetchCatalog, fetchDetail, fetchIconBase64 } from '../lib/catalog'
 import { fapCache, history, newId, sourceNotes, type HistoryEntry } from '../lib/db'
 import { parseFap } from '../lib/fap'
+import { loadOfficialApps } from '../lib/official'
 import {
   APPS_ROOT,
   FIM_DIR,
@@ -38,6 +39,7 @@ function rebuild(patch: Partial<ReturnType<typeof getState>> = {}) {
     const ctx = {
       device: next.deviceInfo,
       systemPaths: next.systemPaths,
+      official: next.official.status === 'ready' ? next.official : null,
       fims: next.fims,
       catalog: next.catalog.status === 'ready' ? next.catalog.byAlias : null,
       catalogByName: next.catalog.status === 'ready' ? next.catalog.byName : null,
@@ -72,6 +74,7 @@ export async function connect(silent = false) {
     const deviceInfo = await device.info()
     setState({ device, deviceInfo })
     void loadCatalog()
+    void loadOfficial(deviceInfo.target)
     await scan()
   } catch (e) {
     const msg = errorText(e)
@@ -124,6 +127,18 @@ async function readFims(d: FlipperDevice): Promise<Fim[]> {
 
 /** How often the app list re-renders while apps stream in. Rendering competes with serial reads. */
 const FLUSH_MS = 1000
+
+/** Firmware-internal folders under /ext/apps that hold settings screens and helpers, not user apps. */
+const INTERNAL_FOLDERS = new Set(['assets'])
+
+/**
+ * Menu categories carry capitals (Games, GPIO, Sub-GHz, and iButton, which starts lowercase);
+ * all-lowercase and dot folders are firmware internals or scratch space.
+ */
+export function skipTopFolder(name: string, onlyCapital: boolean) {
+  if (INTERNAL_FOLDERS.has(name.toLowerCase())) return true
+  return onlyCapital && (name.startsWith('.') || !/[A-Z]/.test(name))
+}
 /** Consecutive unreadable files before the scan stops instead of hammering a struggling device. */
 const MAX_FAILURES_IN_A_ROW = 3
 
@@ -169,10 +184,12 @@ export async function scan() {
         }
       }
     }
+    const onlyCapital = getState().prefs.onlyCapitalFolders
     const walk = async (dir: string) => {
       for (const e of await listDir(dir)) {
         const p = joinPath(dir, e.name)
         if (e.type === 'dir') {
+          if (dir === APPS_ROOT && skipTopFolder(e.name, onlyCapital)) continue
           folders.push(p.slice(APPS_ROOT.length + 1))
           setState({ scan: { phase: 'Listing folders', done: 0, total: 0, current: p } })
           await walk(p)
@@ -253,8 +270,21 @@ export async function scan() {
   }
 }
 
+export async function loadOfficial(target: number) {
+  setState((s) => ({ official: { ...s.official, status: 'loading', error: undefined } }))
+  try {
+    const o = await loadOfficialApps(target)
+    rebuild({ official: { status: 'ready', version: o.version, paths: new Set(o.paths), fileNames: new Set(o.fileNames) } })
+  } catch (e) {
+    setState((s) => ({ official: { ...s.official, status: 'error', error: errorText(e) } }))
+  }
+}
+
+/** Official apps need the session-only override; firmware apps follow the sidebar switch. */
 export function isProtected(app: AppRecord) {
-  return app.origin === 'system' && getState().prefs.protectSystem
+  const s = getState()
+  if (app.origin === 'official') return !s.allowOfficialRemoval
+  return app.origin === 'firmware' && s.prefs.protectSystem
 }
 
 async function record(entry: Omit<HistoryEntry, 'id' | 'ts'>) {
@@ -317,7 +347,7 @@ export async function deleteApps(paths: string[]) {
     }
   })
   if (removed) toast(removed === 1 ? 'Deleted 1 app. You can restore it from History.' : `Deleted ${removed} apps. You can restore them from History.`, 'success')
-  if (skipped) toast(`${skipped} system app${skipped === 1 ? ' was' : 's were'} skipped because protection is on`, 'info')
+  if (skipped) toast(`${skipped} protected app${skipped === 1 ? ' was' : 's were'} skipped. Change protection in the sidebar.`, 'info')
 }
 
 export async function moveApps(paths: string[], folder: string) {
@@ -325,7 +355,7 @@ export async function moveApps(paths: string[], folder: string) {
   const target = folderPath(folder)
   const apps = getState().apps.filter((a) => paths.includes(a.path) && a.dir !== target)
   const blocked = apps.filter(isProtected)
-  if (blocked.length) toast(`System apps stay where the firmware put them (${blocked.map((a) => a.name).join(', ')})`, 'info')
+  if (blocked.length) toast(`Protected apps stay where the firmware put them (${blocked.map((a) => a.name).join(', ')})`, 'info')
   const movable = apps.filter((a) => !isProtected(a))
   for (const app of movable) {
     const to = joinPath(target, app.fileName)

@@ -40,6 +40,8 @@ export interface Prefs {
   sort: SortKey
   sortDir: 1 | -1
   protectSystem: boolean
+  /** Skip top-level folders in /ext/apps that don't start with a capital letter. */
+  onlyCapitalFolders: boolean
   theme: Theme
 }
 
@@ -69,6 +71,15 @@ export interface State {
     byName: Map<string, CatalogApp>
     categories: Map<string, string>
   }
+  official: {
+    status: 'idle' | 'loading' | 'ready' | 'error'
+    version?: string
+    error?: string
+    paths: Set<string>
+    fileNames: Set<string>
+  }
+  /** Session-only: official apps can be deleted or moved. Never persisted. */
+  allowOfficialRemoval: boolean
   history: HistoryEntry[]
   notes: Map<string, string>
   op: { label: string; done: number; total: number } | null
@@ -83,7 +94,7 @@ export interface State {
 
 const PREFS_KEY = 'fpm.prefs.v1'
 const FILTERS_KEY = 'fpm.filters.v1'
-const defaultPrefs: Prefs = { view: 'grid', sort: 'name', sortDir: 1, protectSystem: true, theme: 'system' }
+const defaultPrefs: Prefs = { view: 'grid', sort: 'name', sortDir: 1, protectSystem: true, onlyCapitalFolders: true, theme: 'system' }
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -92,6 +103,14 @@ function load<T>(key: string, fallback: T): T {
   } catch {
     return fallback
   }
+}
+
+const ORIGINS = ['official', 'firmware', 'market', 'sideloaded']
+
+/** Drops stored values from older versions, e.g. the former 'system' origin. */
+function sanitizeFilters(f: Filters): Filters {
+  const origins = f.origins.map((o) => ((o as string) === 'system' ? 'firmware' : o)).filter((o) => ORIGINS.includes(o))
+  return { ...f, query: '', origins: [...new Set(origins)] }
 }
 
 let state: State = {
@@ -108,6 +127,8 @@ let state: State = {
   apps: [],
   duplicates: new Map(),
   catalog: { status: 'idle', byAlias: new Map(), byName: new Map(), categories: new Map() },
+  official: { status: 'idle', paths: new Set(), fileNames: new Set() },
+  allowOfficialRemoval: false,
   history: [],
   notes: new Map(),
   op: null,
@@ -117,7 +138,7 @@ let state: State = {
   tab: 'apps',
   explorerFolder: '',
   prefs: load(PREFS_KEY, defaultPrefs),
-  filters: { ...load(FILTERS_KEY, emptyFilters), query: '' },
+  filters: sanitizeFilters(load(FILTERS_KEY, emptyFilters)),
 }
 
 const listeners = new Set<() => void>()
