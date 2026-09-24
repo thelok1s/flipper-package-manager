@@ -1,4 +1,3 @@
-import { DemoFlipper } from '../flipper/demo'
 import { SerialFlipper } from '../flipper/serial'
 import type { FlipperDevice } from '../flipper/types'
 import { buildRecord, markDuplicates, normalizeName, type AppRecord } from '../lib/analyze'
@@ -57,13 +56,11 @@ export async function loadHistory() {
   setState({ history: entries, notes })
 }
 
-export async function connect(kind: 'serial' | 'demo', silent = false) {
+export async function connect(silent = false) {
   if (getState().status === 'connecting') return
   setState({ status: 'connecting', error: null })
   try {
-    let device: FlipperDevice | null
-    if (kind === 'demo') device = new DemoFlipper()
-    else device = silent ? await SerialFlipper.reconnect() : await SerialFlipper.request()
+    const device: FlipperDevice | null = silent ? await SerialFlipper.reconnect() : await SerialFlipper.request()
     if (!device) {
       setState({ status: 'disconnected' })
       return

@@ -1,6 +1,5 @@
 /**
- * Builds minimal but valid FAP-shaped ELF files. Used by the demo device and tests,
- * so the real parser runs against the same byte layout fbt produces.
+ * Builds minimal but valid FAP-shaped ELF files. Used by tests, so the real parser runs against the same byte layout fbt produces.
  */
 import { FAP_MANIFEST_MAGIC, ICON_SIZE } from './fap'
 

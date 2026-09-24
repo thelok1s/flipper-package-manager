@@ -1,4 +1,4 @@
-import { FlaskIcon, UsbIcon, WarningIcon } from '@phosphor-icons/react'
+import { UsbIcon, WarningIcon } from '@phosphor-icons/react'
 import { motion, useReducedMotion } from 'motion/react'
 import { webSerialSupported } from '../flipper/serial'
 import { connect } from '../state/actions'
@@ -34,11 +34,8 @@ export function ConnectScreen() {
             Find apps that won't launch on your firmware, duplicate copies and sideloaded builds, then clean them up safely.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Button tone="primary" icon={UsbIcon} disabled={!supported || busy} onClick={() => connect('serial')} className="h-11 px-5 text-[15px]">
+            <Button tone="primary" icon={UsbIcon} disabled={!supported || busy} onClick={() => connect()} className="h-11 px-5 text-[15px]">
               {busy ? 'Connecting' : 'Connect Flipper'}
-            </Button>
-            <Button icon={FlaskIcon} disabled={busy} onClick={() => connect('demo')} className="h-11 px-5 text-[15px]">
-              Try the demo
             </Button>
           </div>
           {!supported && (

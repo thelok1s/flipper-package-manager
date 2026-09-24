@@ -19,9 +19,9 @@ export interface DeviceInfo {
 
 export type ProgressFn = (done: number, total: number) => void
 
-/** Everything the app needs from a Flipper, whether it is real or the demo. */
+/** Everything the app needs from a connected Flipper. */
 export interface FlipperDevice {
-  readonly kind: 'serial' | 'demo'
+  readonly kind: 'serial'
   info(): Promise<DeviceInfo>
   list(path: string, withMd5?: boolean): Promise<StorageEntry[]>
   stat(path: string): Promise<StorageEntry | null>

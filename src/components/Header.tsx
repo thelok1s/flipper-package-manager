@@ -38,9 +38,7 @@ export function Header() {
     <header className="sticky top-0 z-20 border-b border-line bg-surface/90 backdrop-blur">
       <div className="flex h-14 items-center gap-3 px-4">
         <div className="flex items-center gap-2.5">
-          <span className="grid size-7 place-items-center rounded-lg bg-accent">
-            <span className="h-3 w-4 rounded-[3px] bg-lcd-pixel" />
-          </span>
+          <img src="/web-app-manifest-192x192.png" alt="" width={28} height={28} className="size-7 rounded-lg" />
           <span className="hidden text-[15px] font-semibold tracking-tight text-ink sm:block">Flipper App Manager</span>
         </div>
 
@@ -77,7 +75,7 @@ export function Header() {
             <div className="mr-1 hidden items-center gap-3 rounded-lg border border-line px-3 py-1 text-[13px] lg:flex">
               <span className="font-medium text-ink">{info.name}</span>
               <span className="text-muted">
-                {info.firmwareVersion || 'unknown'} {device?.kind === 'demo' ? '(demo)' : ''}
+                {info.firmwareVersion || 'unknown'}
               </span>
               <span className="font-mono text-xs text-muted" title="Firmware API version apps are checked against">
                 API {info.apiMajor}.{info.apiMinor}

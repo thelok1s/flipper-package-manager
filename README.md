@@ -9,8 +9,6 @@ npm test         # parser tests (vitest)
 npm run build
 ```
 
-No Flipper at hand? Use **Try the demo**. It loads an in-memory device with realistic apps, duplicates and outdated builds.
-
 ## Deploy
 
 Import the GitHub repo in Vercel. The framework (Vite), build command and output directory are set in `vercel.json`, and nothing else needs configuring. Web Serial needs HTTPS, which Vercel provides.

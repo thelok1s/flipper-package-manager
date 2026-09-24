@@ -37,7 +37,7 @@ export default function App() {
   useEffect(() => {
     void loadHistory()
     // Reattach to a Flipper this site was already granted, without showing the picker.
-    if (webSerialSupported()) void connect('serial', true)
+    if (webSerialSupported()) void connect(true)
   }, [])
 
   const needsDevice = tab !== 'history' && !connected
