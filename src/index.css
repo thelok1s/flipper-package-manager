@@ -1,0 +1,86 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* Semantic tokens. One accent (Flipper orange), cool neutrals, danger reserved for real state. */
+:root {
+  --bg: #f2f3f5;
+  --surface: #fafbfc;
+  --surface-2: #e9ecf0;
+  --line: #d9dde3;
+  --ink: #15171b;
+  --muted: #555c68;
+  --accent: #f07d12;
+  --accent-ink: #a64f00;
+  --accent-soft: #fde9d4;
+  --danger: #b92f25;
+  --danger-soft: #f9e1de;
+  --lcd: #ff8c2e;
+  --lcd-pixel: #1b1a19;
+  --shadow: 0 1px 2px rgb(21 23 27 / 0.06), 0 8px 24px -12px rgb(21 23 27 / 0.14);
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --bg: #0f1012;
+  --surface: #16181b;
+  --surface-2: #1f2226;
+  --line: #2a2e34;
+  --ink: #eceef1;
+  --muted: #9aa1ac;
+  --accent: #ff8a1f;
+  --accent-ink: #ffab5e;
+  --accent-soft: #3a2513;
+  --danger: #f0695d;
+  --danger-soft: #3a1b18;
+  --lcd: #ff8a1f;
+  --lcd-pixel: #1b1a19;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px -16px rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-lcd: var(--lcd);
+  --color-lcd-pixel: var(--lcd-pixel);
+  --shadow-panel: var(--shadow);
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.pixelated {
+  image-rendering: pixelated;
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
