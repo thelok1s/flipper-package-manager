@@ -23,6 +23,8 @@ export interface FapInfo {
   urls: string[]
   sections: string[]
   error?: string
+  /** Read by the fast scan: manifest only, embedded links not read yet. */
+  partial?: boolean
 }
 
 interface Section {

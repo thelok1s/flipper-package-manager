@@ -1,4 +1,4 @@
-/** Flipper App Manager mark, supplied by the project owner. Fills with currentColor. */
+/** Flipper Package Manager mark, supplied by the project owner. Fills with currentColor. */
 export function Logo({ size = 32, className = '' }: { size?: number; className?: string }) {
   return (
     <svg viewBox="0 0 75 75" width={size} height={size} fill="currentColor" className={`text-[#ff8200] ${className}`} aria-hidden>

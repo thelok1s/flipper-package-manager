@@ -20,6 +20,8 @@ export function Sidebar() {
   const filters = useStore((s) => s.filters)
   const protectSystem = useStore((s) => s.prefs.protectSystem)
   const onlyCapital = useStore((s) => s.prefs.onlyCapitalFolders)
+  const fastScan = useStore((s) => s.prefs.fastScan)
+  const jsScan = useStore((s) => s.jsScan)
   const scanning = useStore((s) => s.status === 'scanning')
   const catalog = useStore((s) => s.catalog)
   const official = useStore((s) => s.official)
@@ -159,6 +161,20 @@ export function Sidebar() {
           label="Hide non-app assets"
           hint="Skips internal and lowercase folders in /ext/apps."
         />
+        <div className="mt-3">
+          <Switch
+            checked={fastScan}
+            onChange={(v) => setState((s) => ({ prefs: { ...s.prefs, fastScan: v } }))}
+            label="Fast scan"
+            hint={
+              jsScan === 'unavailable'
+                ? 'Not available on this firmware, using the standard scan.'
+                : jsScan === 'available'
+                  ? 'Reading manifests on the Flipper with its JS engine.'
+                  : 'Reads manifests on the Flipper with its JS engine when it has one.'
+            }
+          />
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 border-t border-line pt-4">

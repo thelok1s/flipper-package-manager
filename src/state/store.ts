@@ -42,6 +42,8 @@ export interface Prefs {
   protectSystem: boolean
   /** Skip top-level folders in /ext/apps that don't start with a capital letter. */
   onlyCapitalFolders: boolean
+  /** Parse manifests on the Flipper with its JS engine when available. */
+  fastScan: boolean
   theme: Theme
 }
 
@@ -80,6 +82,8 @@ export interface State {
   }
   /** Session-only: official apps can be deleted or moved. Never persisted. */
   allowOfficialRemoval: boolean
+  /** Whether the connected Flipper can run the JS fast scan; reset on every connection. */
+  jsScan: 'unknown' | 'available' | 'unavailable'
   history: HistoryEntry[]
   notes: Map<string, string>
   op: { label: string; done: number; total: number } | null
@@ -94,7 +98,7 @@ export interface State {
 
 const PREFS_KEY = 'fpm.prefs.v1'
 const FILTERS_KEY = 'fpm.filters.v1'
-const defaultPrefs: Prefs = { view: 'grid', sort: 'name', sortDir: 1, protectSystem: true, onlyCapitalFolders: true, theme: 'system' }
+const defaultPrefs: Prefs = { view: 'grid', sort: 'name', sortDir: 1, protectSystem: true, onlyCapitalFolders: true, fastScan: true, theme: 'system' }
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -129,6 +133,7 @@ let state: State = {
   catalog: { status: 'idle', byAlias: new Map(), byName: new Map(), categories: new Map() },
   official: { status: 'idle', paths: new Set(), fileNames: new Set() },
   allowOfficialRemoval: false,
+  jsScan: 'unknown',
   history: [],
   notes: new Map(),
   op: null,

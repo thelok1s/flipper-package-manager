@@ -1,6 +1,6 @@
 {
-  "name": "Flipper App Manager",
-  "short_name": "App Manager",
+  "name": "Flipper Package Manager",
+  "short_name": "Flipper PM",
   "icons": [
     {
       "src": "/web-app-manifest-192x192.png",

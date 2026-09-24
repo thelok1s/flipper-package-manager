@@ -11,7 +11,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { COMPAT_LABEL } from '../lib/analyze'
 import { labAppUrl, type CatalogDetail } from '../lib/catalog'
-import { isProtected, moveApps, replaceWithMarket, resolveCatalogSource, setSourceNote } from '../state/actions'
+import { isProtected, loadFullInfo, moveApps, replaceWithMarket, resolveCatalogSource, setSourceNote } from '../state/actions'
 import { setState, useStore } from '../state/store'
 import { AppBadges } from './AppBadges'
 import { AppIcon } from './AppIcon'
@@ -61,6 +61,11 @@ export function DetailDrawer() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app?.path, app?.catalog?.alias])
+
+  // The fast scan skips embedded links; read the whole file once the details are opened.
+  useEffect(() => {
+    if (app?.info.partial) void loadFullInfo(app.path)
+  }, [app?.path, app?.info.partial])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setState({ selected: null })
@@ -208,7 +213,9 @@ export function DetailDrawer() {
             <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-ink">
               <LinkSimpleIcon size={14} aria-hidden /> Links inside the app
             </h3>
-            {app.info.urls.length ? (
+            {app.info.partial ? (
+              <p className="animate-pulse text-[13px] text-muted">Reading the app file for links</p>
+            ) : app.info.urls.length ? (
               <ul className="flex flex-col gap-1 text-[13px]">
                 {app.info.urls.slice(0, 5).map((u) => (
                   <li key={u}>

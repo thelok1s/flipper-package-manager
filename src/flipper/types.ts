@@ -31,6 +31,8 @@ export interface FlipperDevice {
   remove(path: string, recursive?: boolean): Promise<void>
   mkdir(path: string): Promise<void>
   rename(from: string, to: string): Promise<void>
+  /** Runs a CLI command outside the RPC session (used for the on-device JS fast scan). */
+  runCli?(command: string, opts: { done: RegExp; idleMs: number; onText?: (chunk: string) => void }): Promise<string>
   close(): Promise<void>
   onDisconnect?: () => void
 }

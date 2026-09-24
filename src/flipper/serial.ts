@@ -53,6 +53,8 @@ export class SerialFlipper implements FlipperDevice {
   private buffer: Uint8Array = new Uint8Array(0)
   private rpcStarted = false
   private markerSeen?: () => void
+  /** While set, the port is in text CLI mode and every received chunk goes here. */
+  private cliSink?: (text: string) => void
   private nextId = 1
   private pending = new Map<number, Pending>()
   private queue: Promise<unknown> = Promise.resolve()
@@ -98,19 +100,8 @@ export class SerialFlipper implements FlipperDevice {
     this.reader = this.port.readable!.getReader()
     void this.readLoop()
     navigator.serial.addEventListener('disconnect', this.handleUnplug)
-
-    const marker = new Promise<boolean>((resolve) => {
-      this.markerSeen = () => resolve(true)
-      setTimeout(() => resolve(false), 2500)
-    })
-    await this.writeRaw(new TextEncoder().encode('\rstart_rpc_session\r'))
-    const seen = await marker
-    if (!seen) {
-      // The port may still be in an RPC session left open by another tool.
-      this.rpcStarted = true
-      this.buffer = new Uint8Array(0)
-    }
-    await this.ping()
+    // If no marker arrives the port may still be in a session left open by another tool.
+    await this.enterRpc()
   }
 
   private handleUnplug = (e: Event) => {
@@ -139,6 +130,12 @@ export class SerialFlipper implements FlipperDevice {
     merged.set(this.buffer)
     merged.set(bytes, this.buffer.length)
     this.buffer = merged
+
+    if (!this.rpcStarted && this.cliSink) {
+      this.cliSink(new TextDecoder('latin1').decode(this.buffer))
+      this.buffer = new Uint8Array(0)
+      return
+    }
 
     if (!this.rpcStarted) {
       // Before the session starts the CLI echoes text. Skip to the echo of our command.
@@ -203,6 +200,82 @@ export class SerialFlipper implements FlipperDevice {
   }
 
   /** Waits until the Flipper has finished any abandoned reply, then checks it still answers. */
+  /** Pings without going through the queue; for use inside queued tasks. */
+  private async pingDirect(timeoutMs = 5000) {
+    const id = this.nextId++
+    const response = this.expect(id, 'systemPingRequest', { timeoutMs })
+    await this.writeRaw(encodeMain(id, 'systemPingRequest', {}))
+    await response
+  }
+
+  /** Starts an RPC session from the CLI prompt; tolerates a session that is already running. */
+  private async enterRpc() {
+    this.buffer = new Uint8Array(0)
+    this.rpcStarted = false
+    const marker = new Promise<boolean>((resolve) => {
+      this.markerSeen = () => resolve(true)
+      setTimeout(() => resolve(false), 2500)
+    })
+    await this.writeRaw(new TextEncoder().encode('\rstart_rpc_session\r'))
+    if (!(await marker)) {
+      // No echo: the port may already be in an RPC session left open by another tool.
+      this.rpcStarted = true
+      this.buffer = new Uint8Array(0)
+    }
+    await this.pingDirect()
+  }
+
+  /**
+   * Leaves the RPC session, runs one CLI command, streams its output and returns to RPC.
+   * Resolves with the full output once `done` matches, or rejects after `idleMs` of silence.
+   */
+  runCli(command: string, opts: { done: RegExp; idleMs: number; onText?: (chunk: string) => void }): Promise<string> {
+    return this.enqueue(async () => {
+      if (this.closed) throw new Error('Not connected')
+      let out = ''
+      let last = Date.now()
+      const enc = new TextEncoder()
+      // Stop the session; the CLI shell resumes on the same port.
+      await this.writeRaw(encodeMain(this.nextId++, 'stopSession', {}))
+      this.rpcStarted = false
+      this.buffer = new Uint8Array(0)
+      this.cliSink = (t) => {
+        out += t
+        last = Date.now()
+      }
+      await sleep(300)
+      await this.writeRaw(enc.encode('\r'))
+      const promptBy = Date.now() + 3000
+      while (!out.includes('>:') && Date.now() < promptBy) await sleep(50)
+
+      out = ''
+      this.cliSink = (t) => {
+        out += t
+        last = Date.now()
+        opts.onText?.(t)
+      }
+      last = Date.now()
+      await this.writeRaw(enc.encode(command + '\r'))
+      let timedOut = false
+      while (!opts.done.test(out)) {
+        if (this.closed) throw new Error('Not connected')
+        if (Date.now() - last > opts.idleMs) {
+          timedOut = true
+          // Ctrl+C stops a running script.
+          await this.writeRaw(Uint8Array.of(3))
+          await sleep(500)
+          break
+        }
+        await sleep(40)
+      }
+      await sleep(150) // let the prompt arrive before switching modes
+      this.cliSink = undefined
+      await this.enterRpc()
+      if (timedOut) throw new RpcError('TIMEOUT', command.split(' ')[0])
+      return out
+    })
+  }
+
   private async resync() {
     const deadline = Date.now() + 60000
     while (Date.now() - this.lastRx < QUIET_MS) {
@@ -211,10 +284,7 @@ export class SerialFlipper implements FlipperDevice {
       await sleep(200)
     }
     this.buffer = new Uint8Array(0)
-    const id = this.nextId++
-    const response = this.expect(id, 'systemPingRequest', { timeoutMs: 5000 })
-    await this.writeRaw(encodeMain(id, 'systemPingRequest', {}))
-    await response
+    await this.pingDirect()
     this.needsResync = false
   }
 

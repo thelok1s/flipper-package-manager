@@ -1,4 +1,4 @@
-# Flipper App Manager
+# Flipper Package Manager
 
 A browser app for cleaning up the apps on a Flipper Zero. It connects over USB (Web Serial), goes through every folder under `/ext/apps`, and reads each `.fap` manifest directly from the ELF `.fapmeta` section.
 
@@ -18,10 +18,11 @@ Import the GitHub repo in Vercel. The framework (Vite), build command and output
 | Feature | How |
 | --- | --- |
 | Recursive app list, icons, manifests | Protobuf RPC (`storage_list` / `storage_read`), ELF section parse, 10x10 icon decode (raw or heatshrink) |
+| Fast scan | When the firmware has a JS engine (official 1.x, Momentum), a script on the Flipper reads just each app's ELF header and `.fapmeta` and prints them over the CLI. Falls back to full RPC reads otherwise |
 | Won't-launch detection | App API major vs device `firmware_api_major`, the same rule as `flipper_application_manifest_is_too_old/new`. Target mismatch and newer-minor warnings too |
 | Add-on module filter | `[TAG]` in the manifest name, e.g. `[LD2450] Motion tracker` |
 | Duplicates | Grouped by file name or manifest name across folders. Best copy = loads on this firmware, then highest version, then catalog-managed |
-| System app protection | Anything listed in `/ext/Manifest` (written by firmware updates) is locked from delete or move |
+| System app protection | Official apps (from the latest official release's resources Manifest on update.flipperzero.one) need an explicit session override to remove. Firmware apps (listed only in the device's `/ext/Manifest`) follow a sidebar switch |
 | Folder explorer | Drag apps onto folders, the tree or the `..` tile. Create or remove empty folders |
 | Catalog vs sideloaded | Catalog installs carry a `.fim` in `/ext/apps_manifests` (as lab.flipper.net writes them). Sideloaded apps are matched to the catalog by alias or name and can be replaced with the catalog build for your API |
 | History and restore | IndexedDB keeps every delete, move and replace, including the original `.fap` bytes, so deleted apps can be restored. Links: Flipper Lab page, repo links found inside the binary, and your own saved source URL |

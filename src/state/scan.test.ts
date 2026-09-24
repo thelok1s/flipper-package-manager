@@ -121,3 +121,96 @@ describe('folder filtering', () => {
     expect(skipTopFolder('downloads', false)).toBe(false)
   })
 })
+
+describe('fast scan', () => {
+  function jsDevice(files: Record<string, Uint8Array>, jsAvailable: boolean) {
+    const base = fakeDevice(files)
+    const written: Record<string, Uint8Array> = {}
+    let reads = 0
+    const device: FlipperDevice = {
+      ...base.device,
+      write: async (path, data) => {
+        written[path] = data
+      },
+      read: async (path, ...rest) => {
+        if (path.endsWith('.fap')) reads++
+        return base.device.read(path, ...rest)
+      },
+      async runCli(command, opts) {
+        if (!jsAvailable) {
+          const out = `${command}\r\n\`js\` command not found\r\n>: `
+          opts.onText?.(out)
+          return out
+        }
+        const script = new TextDecoder().decode(written[command.split(' ')[1]])
+        const lines: string[] = []
+        const storage = {
+          openFile(path: string) {
+            const bytes = files[path]
+            let pos = 0
+            return bytes && {
+              seekAbsolute: (o: number) => ((pos = o), true),
+              read: (_m: string, n: number) => {
+                const out = bytes.slice(pos, pos + n)
+                pos += out.length
+                return out.buffer
+              },
+              close: () => true,
+            }
+          },
+          readDirectory: async () => undefined,
+        }
+        // Directory listing comes from the same fake as the RPC path.
+        const listings = new Map<string, { path: string; isDirectory: boolean; size: number }[]>()
+        const collect = async (dir: string) => {
+          const entries = await base.device.list(dir).catch(() => undefined)
+          if (!entries) return
+          listings.set(dir, entries.map((e) => ({ path: e.name, isDirectory: e.type === 'dir', size: e.size })))
+          for (const e of entries) if (e.type === 'dir') await collect(`${dir}/${e.name}`)
+        }
+        await collect('/ext/apps')
+        storage.readDirectory = ((dir: string) => listings.get(dir)) as never
+        new Function('require', 'print', 'Uint8Array', script)(
+          () => storage,
+          (...a: unknown[]) => lines.push(a.join(' ')),
+          (x: ArrayBuffer) => new Uint8Array(x),
+        )
+        const out = `${command}\r\nRunning script ${command.split(' ')[1]}, press CTRL+C to stop\r\n${lines.join('\r\n')}\r\nScript done!\r\n>: `
+        // Deliver in awkward chunks, as serial does.
+        for (let i = 0; i < out.length; i += 37) opts.onText?.(out.slice(i, i + 37))
+        return out
+      },
+    }
+    return { device, reads: () => reads }
+  }
+
+  const files = {
+    '/ext/apps/Games/snake.fap': fap('Snake'),
+    '/ext/apps/GPIO/radar.fap': fap('[LD2450] Motion tracker', 86),
+    '/ext/apps/assets/about.fap': fap('About'),
+  }
+
+  it('uses the on-device script when js is available and reads no .fap over RPC', async () => {
+    const { device, reads } = jsDevice(files, true)
+    setState({ device, deviceInfo: await device.info(), jsScan: 'unknown', toasts: [], prefs: { ...getState().prefs, fastScan: true } })
+    await scan()
+    const s = getState()
+    expect(s.jsScan).toBe('available')
+    expect(reads()).toBe(0)
+    expect(s.apps.map((a) => a.name).sort()).toEqual(['Snake', '[LD2450] Motion tracker'])
+    expect(s.apps.every((a) => a.info.partial)).toBe(true)
+    expect(s.apps.find((a) => a.appId === 'radar')?.compat).toBe('too-old')
+    expect(s.folders).toEqual(['', 'Games', 'GPIO'])
+  })
+
+  it('falls back to the standard scan when the firmware has no js command', async () => {
+    const { device } = jsDevice(files, false)
+    setState({ device, deviceInfo: await device.info(), jsScan: 'unknown', toasts: [], prefs: { ...getState().prefs, fastScan: true } })
+    await scan()
+    const s = getState()
+    expect(s.jsScan).toBe('unavailable')
+    expect(s.toasts.some((t) => /Fast scan unavailable/.test(t.text))).toBe(true)
+    expect(s.apps.map((a) => a.name).sort()).toEqual(['Snake', '[LD2450] Motion tracker'])
+    expect(s.apps.some((a) => a.info.partial)).toBe(false)
+  })
+})

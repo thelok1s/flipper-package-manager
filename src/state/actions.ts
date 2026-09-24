@@ -5,6 +5,7 @@ import { downloadBuild, fetchCatalog, fetchDetail, fetchIconBase64 } from '../li
 import { fapCache, history, newId, sourceNotes, type HistoryEntry } from '../lib/db'
 import { parseFap } from '../lib/fap'
 import { loadOfficialApps } from '../lib/official'
+import { FAST_SCAN_DIR, FAST_SCAN_PATH, buildScanScript, parseFastLine } from '../lib/fastScan'
 import {
   APPS_ROOT,
   FIM_DIR,
@@ -72,7 +73,7 @@ export async function connect(silent = false) {
       toast('Flipper disconnected', 'error')
     }
     const deviceInfo = await device.info()
-    setState({ device, deviceInfo })
+    setState({ device, deviceInfo, jsScan: 'unknown', allowOfficialRemoval: false })
     void loadCatalog()
     void loadOfficial(deviceInfo.target)
     await scan()
@@ -165,6 +166,17 @@ export async function scan() {
 
     setState({ scan: { phase: 'Reading catalog install manifests', done: 0, total: 0 } })
     const fims = await readFims(d)
+
+    // Fast path: let the Flipper parse manifests itself with its JS engine.
+    const s0 = getState()
+    if (s0.prefs.fastScan && d.runCli && s0.jsScan !== 'unavailable') {
+      const fast = await tryFastScan(d, scanned, flush, { systemPaths, fims })
+      if (fast) {
+        rebuild({ scanned, pending: [], folders: fast.folders, systemPaths, fims, status: 'ready', scan: null })
+        return
+      }
+      scanned.length = 0
+    }
 
     // Phase 1: list every folder. Cheap, and gives the full file count up front.
     setState({ scan: { phase: 'Listing folders', done: 0, total: 0 } })
@@ -411,6 +423,87 @@ export async function removeFolder(folder: string) {
     setState((s) => ({ folders: s.folders.filter((f) => f !== folder), explorerFolder: s.explorerFolder === folder ? dirname('/' + folder).slice(1) : s.explorerFolder }))
   } catch (e) {
     toast(`Folder is not empty or could not be removed: ${errorText(e)}`, 'error')
+  }
+}
+
+class FastScanUnsupported extends Error {}
+
+/**
+ * Runs the JS fast scan, streaming apps into `scanned`. Returns null (after a notice) when the
+ * firmware has no JS engine or the script fails, so the caller falls back to the standard scan.
+ */
+async function tryFastScan(
+  d: FlipperDevice,
+  scanned: ScannedFile[],
+  flush: (force?: boolean) => void,
+  ctx: { systemPaths: Map<string, string>; fims: Fim[] },
+): Promise<{ folders: string[] } | null> {
+  const folders: string[] = ['']
+  const unlisted: string[] = []
+  let sawBegin = false
+  let sawEnd = false
+  let partialLine = ''
+  const handle = (line: string) => {
+    const parsed = parseFastLine(line)
+    if (!parsed) return
+    if (parsed.kind === 'begin') sawBegin = true
+    else if (parsed.kind === 'end') sawEnd = true
+    else if (parsed.kind === 'unlisted') unlisted.push(parsed.path.replace('/ext/', ''))
+    else if (parsed.kind === 'dir') folders.push(parsed.path.slice(APPS_ROOT.length + 1))
+    else {
+      scanned.push({ path: parsed.path, size: parsed.size, info: parsed.info })
+      setState({ scan: { phase: 'Fast scan on the Flipper', done: scanned.length, total: 0, current: parsed.path } })
+      flush()
+    }
+  }
+
+  setState({ scan: { phase: 'Starting fast scan on the Flipper', done: 0, total: 0 } })
+  try {
+    await ensureDir(d, FAST_SCAN_DIR)
+    await d.write(FAST_SCAN_PATH, enc.encode(buildScanScript(getState().prefs.onlyCapitalFolders)))
+    // Seed the list with the context now so streamed apps are classified correctly.
+    rebuild({ systemPaths: ctx.systemPaths, fims: ctx.fims })
+    const out = await d.runCli!(`js ${FAST_SCAN_PATH}`, {
+      done: /FPM\|END|---- ERROR ----|\n>: ?$/,
+      idleMs: 20000,
+      onText: (chunk) => {
+        const lines = (partialLine + chunk).split(/\r?\n/)
+        partialLine = lines.pop() ?? ''
+        lines.forEach(handle)
+      },
+    })
+    if (partialLine) handle(partialLine)
+    await d.remove(FAST_SCAN_PATH).catch(() => undefined)
+    if (!out.includes('Running script') && !sawBegin) throw new FastScanUnsupported('this firmware has no js command')
+    if (out.includes('---- ERROR ----')) {
+      const detail = out.slice(out.indexOf('---- ERROR ----') + 15).trim().split(/\r?\n/)[0]
+      throw new Error(`the script failed on the Flipper (${detail || 'no details'})`)
+    }
+    if (!sawEnd) throw new Error('the script stopped before finishing')
+    if (unlisted.length) toast(`Could not list ${unlisted.join(', ')}. Scan again to retry.`, 'error')
+    setState({ jsScan: 'available' })
+    folders.sort((a, b) => a.localeCompare(b))
+    return { folders }
+  } catch (e) {
+    if (!getState().device) throw e
+    await d.remove(FAST_SCAN_PATH).catch(() => undefined)
+    // Remember for this connection so later rescans go straight to the standard scan.
+    setState({ jsScan: 'unavailable' })
+    toast(`Fast scan unavailable: ${errorText(e)}. Using the standard scan.`, 'info')
+    return null
+  }
+}
+
+/** Reads a whole .fap for the parts the fast scan skips (embedded web links). */
+export async function loadFullInfo(path: string) {
+  const d = getState().device
+  const entry = getState().scanned.find((f) => f.path === path)
+  if (!d || !entry?.info.partial) return
+  try {
+    const info = parseFap(await d.read(path))
+    rebuild({ scanned: getState().scanned.map((f) => (f.path === path ? { ...f, info } : f)) })
+  } catch {
+    rebuild({ scanned: getState().scanned.map((f) => (f.path === path ? { ...f, info: { ...f.info, partial: false } } : f)) })
   }
 }
 

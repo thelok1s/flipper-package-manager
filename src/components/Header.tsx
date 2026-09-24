@@ -52,7 +52,7 @@ export function Header() {
       <div className="flex h-14 items-center gap-3 px-4">
         <div className="flex items-center gap-2.5">
           <Logo size={32} />
-          <span className="hidden text-[15px] font-semibold tracking-tight text-ink sm:block">Flipper App Manager</span>
+          <span className="hidden text-[15px] font-semibold tracking-tight text-ink sm:block">Flipper Package Manager</span>
         </div>
 
         {device && (
