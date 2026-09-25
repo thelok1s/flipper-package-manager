@@ -12,7 +12,7 @@ import { parseManifest, type FapInfo } from './fap'
 export const FAST_SCAN_DIR = '/ext/.tmp/fpm'
 export const FAST_SCAN_PATH = `${FAST_SCAN_DIR}/scan.js`
 
-/** `limit` stops after that many apps; used by the benchmark. */
+/** `limit` stops after that many apps. */
 export function buildScanScript(onlyCapital: boolean, limit = 1000000): string {
   return `// Flipper Package Manager fast scan. Safe to delete.
 // Reads use "ascii" strings on purpose: this mJS never frees ArrayBuffers ("binary" reads) until

@@ -4,7 +4,7 @@ import { emptyFilters, isOutdated, type Filters, type Origin } from '../lib/anal
 import { loadCatalog, loadOfficial, scan } from '../state/actions'
 import { setState, useStore } from '../state/store'
 import { ask } from './Confirm'
-import { ScanMethodPicker } from './Benchmark'
+import { ScanMethodPicker } from './ScanMethodPicker'
 import { Chip, SectionLabel, Switch } from './ui'
 
 const ORIGINS: { id: Origin; label: string }[] = [

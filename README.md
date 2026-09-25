@@ -18,7 +18,7 @@ Import the GitHub repo in Vercel. The framework (Vite), build command and output
 | Feature | How |
 | --- | --- |
 | Recursive app list, icons, manifests | Protobuf RPC (`storage_list` / `storage_read`), ELF section parse, 10x10 icon decode (raw or heatshrink) |
-| Fast scan | When the firmware has a JS engine (official 1.x, Momentum), a script on the Flipper reads just each app's ELF header and `.fapmeta` and prints them over the CLI. Falls back to full RPC reads otherwise |
+| Scan methods | **Full read** (default) copies each `.fap` over RPC and parses it in the browser. **On-device JS** (alternative) runs a script on the Flipper's JS engine that reads only each app's ELF header and `.fapmeta`. Benchmarked on a Momentum Flipper, full read was ~8x faster (0.3 s vs 2.3 s per app): the Flipper's JS engine is much slower than the USB link |
 | Won't-launch detection | App API major vs device `firmware_api_major`, the same rule as `flipper_application_manifest_is_too_old/new`. Target mismatch and newer-minor warnings too |
 | Add-on module filter | `[TAG]` in the manifest name, e.g. `[LD2450] Motion tracker` |
 | Duplicates | Grouped by file name or manifest name across folders. Best copy = loads on this firmware, then highest version, then catalog-managed |

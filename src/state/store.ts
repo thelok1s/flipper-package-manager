@@ -44,7 +44,7 @@ export interface Prefs {
   onlyCapitalFolders: boolean
   /**
    * js: parse manifests on the Flipper with its JS engine (falls back to rpc when unavailable).
-   * rpc: copy each .fap over RPC and parse it here. The benchmark sets the faster one.
+   * rpc: copy each .fap over RPC and parse it here. The default: ~8x faster in a benchmark.
    */
   scanMethod: 'js' | 'rpc'
   theme: Theme
@@ -87,10 +87,6 @@ export interface State {
   allowOfficialRemoval: boolean
   /** Whether the connected Flipper can run the JS fast scan; reset on every connection. */
   jsScan: 'unknown' | 'available' | 'unavailable'
-  /** Temporary benchmark state; while running, the app does no reading of its own. */
-  benchmark: { running: boolean; step: string; rows: import('./benchmark').BenchRow[] } | null
-  /** Last completed benchmark, persisted in localStorage. */
-  benchReport: import('./benchmark').BenchReport | null
   history: HistoryEntry[]
   notes: Map<string, string>
   op: { label: string; done: number; total: number } | null
@@ -105,7 +101,7 @@ export interface State {
 
 const PREFS_KEY = 'fpm.prefs.v1'
 const FILTERS_KEY = 'fpm.filters.v1'
-const defaultPrefs: Prefs = { view: 'grid', sort: 'name', sortDir: 1, protectSystem: true, onlyCapitalFolders: true, scanMethod: 'js', theme: 'system' }
+const defaultPrefs: Prefs = { view: 'grid', sort: 'name', sortDir: 1, protectSystem: true, onlyCapitalFolders: true, scanMethod: 'rpc', theme: 'system' }
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -114,6 +110,18 @@ function load<T>(key: string, fallback: T): T {
   } catch {
     return fallback
   }
+}
+
+/** Full read became the default after benchmarking; move earlier installs over once. */
+function migratePrefs(p: Prefs): Prefs {
+  try {
+    if (localStorage.getItem('fpm.scanDefault.v2')) return p
+    localStorage.setItem('fpm.scanDefault.v2', '1')
+    localStorage.removeItem('fpm.benchmark.v1')
+  } catch {
+    return p
+  }
+  return { ...p, scanMethod: 'rpc' }
 }
 
 const ORIGINS = ['official', 'firmware', 'market', 'sideloaded']
@@ -141,8 +149,6 @@ let state: State = {
   official: { status: 'idle', paths: new Set(), fileNames: new Set() },
   allowOfficialRemoval: false,
   jsScan: 'unknown',
-  benchmark: null,
-  benchReport: load<import('./benchmark').BenchReport | null>('fpm.benchmark.v1', null),
   history: [],
   notes: new Map(),
   op: null,
@@ -151,7 +157,7 @@ let state: State = {
   checked: new Set(),
   tab: 'apps',
   explorerFolder: '',
-  prefs: load(PREFS_KEY, defaultPrefs),
+  prefs: migratePrefs(load(PREFS_KEY, defaultPrefs)),
   filters: sanitizeFilters(load(FILTERS_KEY, emptyFilters)),
 }
 

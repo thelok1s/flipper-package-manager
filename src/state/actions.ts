@@ -135,8 +135,6 @@ const FLUSH_MS = 1000
 const MAX_FAILURES_IN_A_ROW = 3
 
 export async function scan() {
-  // The benchmark owns the device while it runs.
-  if (getState().benchmark?.running) return
   const d = requireDevice()
   setState({ status: 'scanning', pending: [], scan: { phase: 'Reading firmware resource list', done: 0, total: 0 } })
   const scanned: ScannedFile[] = []
@@ -415,7 +413,7 @@ export async function removeFolder(folder: string) {
 export async function loadFullInfo(path: string) {
   const d = getState().device
   const entry = getState().scanned.find((f) => f.path === path)
-  if (!d || !entry?.info.partial || getState().benchmark?.running) return
+  if (!d || !entry?.info.partial) return
   try {
     const info = parseFap(await d.read(path))
     rebuild({ scanned: getState().scanned.map((f) => (f.path === path ? { ...f, info } : f)) })
