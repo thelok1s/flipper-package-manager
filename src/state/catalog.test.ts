@@ -25,6 +25,7 @@ const cat: CatalogApp = {
   iconUri: 'https://catalog.flipperzero.one/api/v0/application/version/assets/icon',
   screenshots: [],
   buildApi: '87.1',
+  fapHash: '',
   createdAt: 0,
   updatedAt: 0,
   downloads: 0,
@@ -217,5 +218,75 @@ describe('catalog installs match Flipper Lab', () => {
       catalogById: new Map([[cat.id, cat]]),
     })
     expect(r.origin).toBe('market')
+  })
+})
+
+describe('replace validates before downloading', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('recognises the same app by hash or by version and API', async () => {
+    const { sameAsCatalog } = await import('../lib/analyze')
+    const { sha256Hex } = await import('../lib/fap')
+    const bytes = buildFap({ name: 'Bounce', apiMajor: 87, apiMinor: 1, versionMajor: 1, versionMinor: 0 })
+    const hashed = { ...cat, fapHash: await sha256Hex(bytes) }
+    const ctx = { device, systemPaths: new Map(), official: null, fims: [], catalog: new Map([['bounce', hashed]]), catalogByName: null, catalogById: null }
+    const info = { ...parseFap(bytes), sha256: await sha256Hex(bytes) }
+    expect(sameAsCatalog(buildRecord({ path: '/ext/apps/Games/bounce.fap', size: 1 }, info, ctx))).toEqual({ same: true, how: 'hash' })
+    const sameVersion = parseFap(buildFap({ name: 'Bounce', apiMajor: 87, apiMinor: 1, versionMajor: 1, versionMinor: 2 }))
+    expect(sameAsCatalog(buildRecord({ path: '/ext/apps/Games/bounce.fap', size: 1 }, sameVersion, { ...ctx, catalog: new Map([['bounce', cat]]) }))).toEqual({
+      same: true,
+      how: 'version',
+    })
+    const older = parseFap(buildFap({ name: 'Bounce', apiMajor: 86, apiMinor: 0, versionMajor: 1, versionMinor: 0 }))
+    expect(sameAsCatalog(buildRecord({ path: '/ext/apps/Games/bounce.fap', size: 1 }, older, { ...ctx, catalog: new Map([['bounce', cat]]) })).same).toBe(false)
+  })
+
+  it('links an identical sideloaded copy instead of replacing it', async () => {
+    const { sha256Hex } = await import('../lib/fap')
+    const path = '/ext/apps/Downloads/bounce.fap'
+    const bytes = buildFap({ name: 'Bounce', apiMajor: 87, apiMinor: 1, versionMajor: 1, versionMinor: 2 })
+    const hashed = { ...cat, fapHash: await sha256Hex(bytes) }
+    const files = new Map<string, Uint8Array>([[path, bytes]])
+    const writes: string[] = []
+    const removed: string[] = []
+    const d: FlipperDevice = {
+      kind: 'serial',
+      info: async () => device,
+      list: async () => [],
+      stat: async () => null,
+      timestamp: async () => null,
+      read: async (p) => files.get(p) ?? new Uint8Array(),
+      write: async (p, data) => void (writes.push(p), files.set(p, data)),
+      remove: async (p) => void removed.push(p),
+      mkdir: async () => {},
+      rename: async () => {},
+      close: async () => {},
+    }
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/build/compatible')) throw new Error('must not download')
+      return new Response(new Uint8Array([1, 2, 3]).buffer)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    // Scanned without a hash, as the fast scan or an old cache would leave it.
+    const info = parseFap(bytes)
+    const ctx = { device, systemPaths: new Map(), official: null, fims: [], catalog: new Map([['bounce', hashed]]), catalogByName: null, catalogById: new Map([[cat.id, hashed]]) }
+    setState({
+      device: d,
+      deviceInfo: device,
+      op: null,
+      scanned: [{ path, size: bytes.length, info }],
+      apps: [buildRecord({ path, size: bytes.length }, info, ctx)],
+      fims: [],
+      catalog: { ...getState().catalog, status: 'ready', apps: [hashed], byAlias: new Map([['bounce', hashed]]), byId: new Map([[cat.id, hashed]]), categories: new Map([['games-id', 'Games']]) },
+    })
+    expect(await installFromCatalog(hashed, path)).toBe(true)
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/build/compatible'))).toBe(false)
+    expect(writes).toEqual(['/ext/apps_manifests/bounce.fim'])
+    expect(removed).toEqual([])
+    const fimText = new TextDecoder().decode(files.get('/ext/apps_manifests/bounce.fim'))
+    expect(parseFim(fimText, 'bounce.fim')).toMatchObject({ versionUid: 'v2-id', buildApi: '87.1', path })
+    const s = getState()
+    expect(s.apps[0]).toMatchObject({ path, origin: 'market', updateAvailable: false })
+    expect(s.catalogInstalls[0]).toMatchObject({ updateAvailable: false })
   })
 })

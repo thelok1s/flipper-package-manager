@@ -22,6 +22,8 @@ export interface CatalogApp {
   screenshots: string[]
   /** SDK API of the build the catalog serves for this firmware (or the latest release). */
   buildApi: string
+  /** SHA-256 of that build's .fap, as served by /build/compatible. Lets a local copy be proven identical. */
+  fapHash: string
   createdAt: number
   updatedAt: number
   downloads: number
@@ -67,7 +69,7 @@ interface RawApp {
     short_description: string
     icon_uri: string
     screenshots?: string[]
-    current_build?: { sdk?: { api?: string } }
+    current_build?: { sdk?: { api?: string }; fap_hash?: string }
   }
 }
 
@@ -99,6 +101,7 @@ export async function fetchCatalog(compat?: Compat): Promise<{ apps: CatalogApp[
         iconUri: a.current_version.icon_uri,
         screenshots: a.current_version.screenshots ?? [],
         buildApi: a.current_version.current_build?.sdk?.api ?? '',
+        fapHash: a.current_version.current_build?.fap_hash ?? '',
         createdAt: a.created_at,
         updatedAt: a.updated_at,
         downloads: a.downloads ?? 0,

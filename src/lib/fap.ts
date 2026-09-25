@@ -25,6 +25,18 @@ export interface FapInfo {
   error?: string
   /** Read by the fast scan: manifest only, embedded links not read yet. */
   partial?: boolean
+  /** SHA-256 of the whole file, when it was read in full. Compared with the catalog's fap_hash. */
+  sha256?: string
+}
+
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>)
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** Parses a whole .fap and records its hash. */
+export async function parseFapHashed(bytes: Uint8Array): Promise<FapInfo> {
+  return { ...parseFap(bytes), sha256: await sha256Hex(bytes) }
 }
 
 interface Section {

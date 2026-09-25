@@ -1,9 +1,9 @@
 import { SerialFlipper } from '../flipper/serial'
 import type { FlipperDevice } from '../flipper/types'
-import { buildRecord, catalogInstalls, linkState, markDuplicates, normalizeName, type AppRecord, type CatalogInstall } from '../lib/analyze'
+import { buildRecord, catalogInstalls, isCatalogBuild, linkState, markDuplicates, normalizeName, sameAsCatalog, type AppRecord, type CatalogInstall, type Sameness } from '../lib/analyze'
 import { compareVersions, downloadBuild, fetchCatalog, fetchDetail, fetchIconBase64, type CatalogApp } from '../lib/catalog'
 import { fapCache, history, newId, sourceNotes, type HistoryEntry } from '../lib/db'
-import { parseFap } from '../lib/fap'
+import { parseFapHashed, sha256Hex } from '../lib/fap'
 import { loadOfficialApps } from '../lib/official'
 import { ensureDir, listFaps, runJsScan } from '../lib/scanners'
 
@@ -256,7 +256,7 @@ export async function scan() {
       let info
       for (let attempt = 0; !info; attempt++) {
         try {
-          info = parseFap(await d.read(f.path, (n) => progress(i, f, n), f.size))
+          info = await parseFapHashed(await d.read(f.path, (n) => progress(i, f, n), f.size))
           await fapCache.put(f.key, info).catch(() => undefined)
           failuresInARow = 0
         } catch (e) {
@@ -433,7 +433,7 @@ export async function loadFullInfo(path: string) {
   const entry = getState().scanned.find((f) => f.path === path)
   if (!d || !entry?.info.partial) return
   try {
-    const info = parseFap(await d.read(path))
+    const info = await parseFapHashed(await d.read(path))
     rebuild({ scanned: getState().scanned.map((f) => (f.path === path ? { ...f, info } : f)) })
   } catch {
     rebuild({ scanned: getState().scanned.map((f) => (f.path === path ? { ...f, info: { ...f.info, partial: false } } : f)) })
@@ -479,7 +479,7 @@ export async function restore(entry: HistoryEntry) {
       }
       await markRestored(entry)
       await record({ kind: 'restore', path, appId: entry.appId, name: entry.name, version: entry.version, api: entry.api, iconPixels: entry.iconPixels, urls: entry.urls, labAlias: entry.labAlias })
-      const info = parseFap(backup)
+      const info = await parseFapHashed(backup)
       const folder = dirname(path).slice(APPS_ROOT.length + 1)
       rebuild({
         scanned: [...getState().scanned.filter((f) => f.path !== path), { path, size: backup.length, info }],
@@ -570,6 +570,26 @@ export async function installFromCatalog(cat: CatalogApp, replacePath?: string, 
     toast(`${old.name} is protected. Change protection in the sidebar to replace it.`, 'info')
     return false
   }
+  // Validate first: if the copy already is this build, link it instead of downloading it again.
+  if (old) {
+    const check = await compareWithCatalog(old.path)
+    if (check.same) {
+      const current = getState().apps.find((a) => a.path === old.path) ?? old
+      try {
+        await writeFimFor(d, current, cat, cat.versionId, check.how === 'hash' ? cat.buildApi : current.api)
+        toast(
+          check.how === 'hash'
+            ? `${cat.name} is already the catalog build, so it was linked instead of replaced. Nothing was downloaded.`
+            : `${cat.name} ${cat.version} is already installed for this API, so it was linked instead of replaced.`,
+          'success',
+        )
+        return true
+      } catch (e) {
+        toast(`Could not link ${cat.name}: ${errorText(e)}`, 'error')
+        return false
+      }
+    }
+  }
   const category = s.catalog.categories.get(cat.categoryId) ?? 'Tools'
   const target = `${APPS_ROOT}/${category}/${cat.alias}.fap`
   const api = `${info.apiMajor}.${info.apiMinor}`
@@ -594,7 +614,7 @@ export async function installFromCatalog(cat: CatalogApp, replacePath?: string, 
           // A catalog install under another alias leaves a stale manifest behind.
           if (old.fim && old.fim.file !== `${cat.alias}.fim`) await d.remove(joinPath(FIM_DIR, old.fim.file)).catch(() => undefined)
         }
-        const fresh = parseFap(build)
+        const fresh = await parseFapHashed(build)
         await record(
           old
             ? { kind: 'replace', path: old.path, toPath: target, ...snapshot(old), backup, labAlias: cat.alias }
@@ -633,6 +653,37 @@ export async function installFromCatalog(cat: CatalogApp, replacePath?: string, 
   )
 }
 
+/** Writes the .fim that marks `app` as an install of `cat`, and drops a stale one under another name. */
+async function writeFimFor(d: FlipperDevice, app: AppRecord, cat: CatalogApp, versionUid: string, buildApi: string) {
+  const iconBase64 = await requireIcon(cat)
+  await ensureDir(d, FIM_DIR)
+  const fimText = buildFim({ name: cat.name, iconBase64, api: buildApi, uid: cat.id, versionUid, path: app.path })
+  await d.write(joinPath(FIM_DIR, `${cat.alias}.fim`), enc.encode(fimText))
+  if (app.fim && app.fim.file.toLowerCase() !== `${cat.alias}.fim`.toLowerCase()) await d.remove(joinPath(FIM_DIR, app.fim.file)).catch(() => undefined)
+  const fim = parseFim(fimText, `${cat.alias}.fim`)
+  rebuild({ fims: [...getState().fims.filter((f) => f.file !== fim.file && f.file !== app.fim?.file), fim] })
+}
+
+/**
+ * Checks a copy against the catalog build. Uses the hash from the scan, or reads the file once to
+ * compute it (the fast scan and older caches do not have one).
+ */
+export async function compareWithCatalog(path: string): Promise<Sameness> {
+  let app = getState().apps.find((a) => a.path === path)
+  if (!app?.catalog) return { same: false, reason: 'Not in the catalog' }
+  const d = getState().device
+  if (!app.info.sha256 && d) {
+    try {
+      const sha256 = await sha256Hex(await d.read(path))
+      rebuild({ scanned: getState().scanned.map((f) => (f.path === path ? { ...f, info: { ...f.info, sha256 } } : f)) })
+      app = getState().apps.find((a) => a.path === path) ?? app
+    } catch {
+      /* fall back to the version check */
+    }
+  }
+  return sameAsCatalog(app)
+}
+
 /**
  * Registers existing copies as catalog installs by writing the .fim that lab.flipper.net would have
  * written. Nothing is downloaded; see linkState for the conditions.
@@ -655,11 +706,7 @@ export async function linkToCatalog(paths: string[]) {
       }
       const cat = app.catalog
       try {
-        const iconBase64 = await requireIcon(cat)
-        const fimText = buildFim({ name: cat.name, iconBase64, api: app.api, uid: cat.id, versionUid: state.versionUid, path })
-        await d.write(joinPath(FIM_DIR, `${cat.alias}.fim`), enc.encode(fimText))
-        const fim = parseFim(fimText, `${cat.alias}.fim`)
-        rebuild({ fims: [...getState().fims.filter((f) => f.file !== fim.file), fim] })
+        await writeFimFor(d, app, cat, state.versionUid, isCatalogBuild(app) ? cat.buildApi : app.api)
         linked++
       } catch (e) {
         toast(`Could not link ${app.name}: ${errorText(e)}`, 'error')

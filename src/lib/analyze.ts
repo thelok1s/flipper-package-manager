@@ -252,6 +252,25 @@ export interface LinkState {
 
 export const OLDER_THAN_CATALOG = 'fpm-linked-older'
 
+/** True when the file's SHA-256 equals the catalog's hash for its current compatible build. */
+export function isCatalogBuild(app: AppRecord) {
+  return !!app.info.sha256 && !!app.catalog?.fapHash && app.info.sha256 === app.catalog.fapHash
+}
+
+export type Sameness = { same: true; how: 'hash' | 'version' } | { same: false; reason: string }
+
+/**
+ * Whether replacing `app` with the catalog build would change anything. Identical bytes are the
+ * proof; the same version built for the same API counts as the same app too.
+ */
+export function sameAsCatalog(app: AppRecord): Sameness {
+  const cat = app.catalog
+  if (!cat) return { same: false, reason: 'Not in the catalog' }
+  if (isCatalogBuild(app)) return { same: true, how: 'hash' }
+  if (app.version && compareVersions(app.version, cat.version) === 0 && app.api === cat.buildApi) return { same: true, how: 'version' }
+  return { same: false, reason: `Installed ${app.version || '?'} for API ${app.api || '?'}, catalog has ${cat.version} for API ${cat.buildApi}` }
+}
+
 /**
  * Whether a copy on the Flipper can be registered as a catalog install by writing a .fim for it,
  * the way lab.flipper.net would after installing it. `fimNames` are the .fim files already present.
@@ -264,6 +283,7 @@ export function linkState(app: AppRecord, fimNames: Set<string>): LinkState {
   if (!app.info.manifest) return { ok: false, reason: 'Its manifest could not be read' }
   if (app.compat === 'target') return { ok: false, reason: 'Built for different hardware' }
   if (fimNames.has(`${cat.alias}.fim`.toLowerCase())) return { ok: false, reason: 'Another copy is already linked to this listing' }
+  if (isCatalogBuild(app)) return { ok: true, reason: 'Byte-for-byte the catalog build', versionUid: cat.versionId }
   const cmp = compareVersions(app.version, cat.version)
   if (cmp > 0) return { ok: false, reason: `Newer than the catalog (${app.version} vs ${cat.version})` }
   if (cmp < 0) return { ok: true, reason: `Older than the catalog (${app.version} vs ${cat.version}); an update will be offered`, versionUid: OLDER_THAN_CATALOG }
