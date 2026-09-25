@@ -47,6 +47,12 @@ export interface Prefs {
    * rpc: copy each .fap over RPC and parse it here. The default: ~8x faster in a benchmark.
    */
   scanMethod: 'js' | 'rpc'
+  /** Show a GPIO badge on apps that need the GPIO header or an add-on board. */
+  showGpioBadge: boolean
+  /** Show System / Firmware / Catalog badges in the icon grid too, not only in lists. */
+  showSourceOnCards: boolean
+  sidebarCollapsed: boolean
+  settingsOpen: boolean
   theme: Theme
 }
 
@@ -108,7 +114,7 @@ export interface State {
 
 const PREFS_KEY = 'fpm.prefs.v1'
 const FILTERS_KEY = 'fpm.filters.v1'
-const defaultPrefs: Prefs = { view: 'grid', sort: 'name', sortDir: 1, protectSystem: true, onlyCapitalFolders: true, scanMethod: 'rpc', theme: 'system' }
+const defaultPrefs: Prefs = { view: 'grid', sort: 'name', sortDir: 1, protectSystem: true, onlyCapitalFolders: true, scanMethod: 'rpc', showGpioBadge: true, showSourceOnCards: true, sidebarCollapsed: false, settingsOpen: true, theme: 'system' }
 
 function load<T>(key: string, fallback: T): T {
   try {

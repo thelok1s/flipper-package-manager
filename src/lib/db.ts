@@ -1,4 +1,4 @@
-import { createStore, del, entries, get, set, values } from 'idb-keyval'
+import { createStore, del, delMany, entries, get, keys, set, values } from 'idb-keyval'
 import type { FapInfo } from './fap'
 
 // idb-keyval keeps one object store per database, so each concern gets its own database.
@@ -26,6 +26,10 @@ export interface HistoryEntry {
   restoredAt?: number
   /** Text of the market .fim manifest, so a deleted market app can be restored as managed. */
   fimText?: string
+  /** Catalog listing the app matched when it was removed; lets it be reinstalled instead of restored. */
+  catalogId?: string
+  /** Set when the backup was dropped to reclaim space because the catalog has this version or newer. */
+  reinstallFromCatalog?: boolean
 }
 
 export const history = {
@@ -41,6 +45,12 @@ export const fapCache = {
   key: (path: string, size: number, stamp?: string | number | null) => `${path.toLowerCase()}|${size}|${stamp ?? ''}`,
   get: (key: string) => get<FapInfo>(key, cacheStore),
   put: (key: string, info: FapInfo) => set(key, info, cacheStore),
+  /** Drops cached results for files no longer on the Flipper. Returns how many were removed. */
+  prune: async (keepPaths: Set<string>) => {
+    const stale = (await keys<string>(cacheStore)).filter((k) => !keepPaths.has(String(k).split('|')[0]))
+    await delMany(stale, cacheStore)
+    return stale.length
+  },
 }
 
 /** Per-app source links the user typed in, keyed by app id. */

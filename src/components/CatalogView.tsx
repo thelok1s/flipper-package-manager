@@ -1,14 +1,14 @@
-import { ArrowSquareOutIcon, ArrowsClockwiseIcon, GithubLogoIcon, MagnifyingGlassIcon, XIcon } from '@phosphor-icons/react'
+import { ArrowSquareOutIcon, ArrowsClockwiseIcon, CheckIcon, GithubLogoIcon, MagnifyingGlassIcon, XIcon } from '@phosphor-icons/react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { AppRecord } from '../lib/analyze'
+import { linkState, type AppRecord } from '../lib/analyze'
 import { CATALOG_CONTRIBUTE_URL, labAppUrl, type CatalogApp, type CatalogCategory, type CatalogDetail } from '../lib/catalog'
-import { installFromCatalog, isProtected, loadCatalog, resolveCatalogSource, updateAll } from '../state/actions'
+import { installFromCatalog, isProtected, linkToCatalog, loadCatalog, resolveCatalogSource, updateAll } from '../state/actions'
 import { getState, setState, useStore } from '../state/store'
 import { OriginBadge } from './AppBadges'
 import { AppIcon } from './AppIcon'
 import { ask } from './Confirm'
-import { Button } from './ui'
+import { Button, Hint } from './ui'
 
 type Sort = 'updated' | 'created' | 'downloads' | 'name'
 const SORTS: { id: Sort; label: string }[] = [
@@ -65,6 +65,7 @@ function ActionButton({ cat, copies, size = 'sm' }: { cat: CatalogApp; copies: A
   const connected = useStore((s) => !!s.device)
   const scanning = useStore((s) => s.status === 'scanning')
   const busy = !!op || scanning || !connected
+  const why = !connected ? 'Connect a Flipper first' : scanning ? 'Wait for the scan to finish' : op ? 'Wait for the current operation to finish' : null
   if (op?.key === cat.id) {
     const pct = op.total ? Math.round((op.done / op.total) * 100) : 0
     return (
@@ -77,22 +78,32 @@ function ActionButton({ cat, copies, size = 'sm' }: { cat: CatalogApp; copies: A
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation()
   if (!best) {
     return (
-      <Button size={size} tone="primary" disabled={busy} className="min-w-24" onClick={(e) => (stop(e), void installFromCatalog(cat))}>
-        Install
-      </Button>
+      <Hint reason={why}>
+        <Button size={size} tone="primary" disabled={busy} className="min-w-24" onClick={(e) => (stop(e), void installFromCatalog(cat))}>
+          Install
+        </Button>
+      </Hint>
     )
   }
   if (best.updateAvailable && !isProtected(best)) {
     return (
-      <Button size={size} tone="primary" disabled={busy} className="min-w-24" onClick={(e) => (stop(e), void installFromCatalog(cat, best.path))}>
-        {best.origin === 'market' ? 'Update' : 'Replace'}
-      </Button>
+      <Hint reason={why}>
+        <Button size={size} tone="primary" disabled={busy} className="min-w-24" onClick={(e) => (stop(e), void installFromCatalog(cat, best.path))}>
+          {best.origin === 'market' ? 'Update' : 'Replace'}
+        </Button>
+      </Hint>
     )
   }
+  const where = best.path.replace('/ext/', '')
+  const how =
+    best.origin === 'market' ? 'as a catalog install' : best.origin === 'sideloaded' ? 'as a sideloaded copy' : 'by the firmware'
   return (
-    <span className={`inline-flex min-w-24 items-center justify-center rounded-lg border border-line text-muted ${size === 'sm' ? 'h-8 px-2.5 text-[13px]' : 'h-9 px-3.5 text-sm'}`}>
-      Installed
-    </span>
+    <Hint reason={`On this Flipper at ${where}, ${how}. Installing another copy is blocked.`}>
+      <span className={`inline-flex min-w-24 items-center justify-center gap-1.5 rounded-lg border border-line text-muted ${size === 'sm' ? 'h-8 px-2.5 text-[13px]' : 'h-9 px-3.5 text-sm'}`}>
+        <CheckIcon size={14} weight="bold" aria-hidden />
+        Installed
+      </span>
+    </Hint>
   )
 }
 
@@ -365,11 +376,97 @@ function UpdatesList({ onOpen }: { onOpen: (cat: CatalogApp) => void }) {
   )
 }
 
+const MATCH_LABEL = { fim: 'Catalog manifest', alias: 'File name', name: 'App name' } as const
+
+/** Installed apps that match a catalog listing, with the option to link them via a .fim. */
+function OnFlipperList({ onOpen }: { onOpen: (cat: CatalogApp) => void }) {
+  const apps = useStore((s) => s.apps)
+  const fims = useStore((s) => s.fims)
+  const busy = useStore((s) => !!s.op || s.status === 'scanning')
+  const fimNames = useMemo(() => new Set(fims.map((f) => f.file.toLowerCase())), [fims])
+  const rows = useMemo(
+    () =>
+      apps
+        .filter((a) => a.catalog)
+        .map((a) => ({ app: a, link: linkState(a, fimNames) }))
+        .sort((x, y) => Number(y.link.ok) - Number(x.link.ok) || x.app.name.localeCompare(y.app.name)),
+    [apps, fimNames],
+  )
+  const eligible = rows.filter((r) => r.link.ok)
+  const linked = rows.filter((r) => r.app.origin === 'market').length
+
+  const linkAll = async () => {
+    const ok = await ask({
+      title: `Link ${eligible.length} app${eligible.length === 1 ? '' : 's'} to the catalog?`,
+      body: 'Writes a .fim manifest for each, the file lab.flipper.net and the mobile app use to track catalog installs. Nothing is downloaded and the apps are not changed. Older builds will show an update.',
+      confirmLabel: 'Link apps',
+    })
+    if (ok) await linkToCatalog(eligible.map((r) => r.app.path))
+  }
+
+  if (!rows.length)
+    return (
+      <div className="flex flex-col items-start gap-2 px-6 py-16 md:px-12">
+        <h2 className="text-xl font-semibold tracking-tight text-ink">No installed app matches the catalog</h2>
+        <p className="max-w-[52ch] text-sm leading-relaxed text-muted">Apps are matched by their catalog manifest, file name or app name.</p>
+      </div>
+    )
+
+  return (
+    <div className="p-4">
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <p className="max-w-[70ch] text-sm text-muted">
+          <span className="font-mono text-ink">{rows.length}</span> apps on this Flipper are in the catalog,{' '}
+          <span className="font-mono text-ink">{linked}</span> linked. Linking writes the .fim that lab.flipper.net would have written, so updates
+          and the mobile app recognise the app.
+        </p>
+        <Hint reason={!eligible.length ? 'No app can be linked right now' : busy ? 'Wait for the current operation to finish' : null} className="ml-auto">
+          <Button tone="primary" size="sm" disabled={busy || !eligible.length} onClick={linkAll}>
+            Link {eligible.length} eligible
+          </Button>
+        </Hint>
+      </div>
+      <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
+        {rows.map(({ app: a, link }) => (
+          <li key={a.path} className="grid grid-cols-[40px_1fr] items-center gap-3 px-4 py-3 md:grid-cols-[40px_minmax(0,1fr)_minmax(0,1fr)_auto]">
+            <AppIcon pixels={a.info.manifest?.icon} size={40} />
+            <button type="button" className="min-w-0 text-left" onClick={() => onOpen(a.catalog!)}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="truncate text-sm font-medium text-ink">{a.name}</span>
+                <OriginBadge app={a} />
+              </div>
+              <div className="mt-0.5 truncate font-mono text-xs text-muted">{a.path.replace('/ext/', '')}</div>
+            </button>
+            <div className="col-span-2 min-w-0 text-xs text-muted md:col-span-1">
+              <div>
+                <span className="font-mono text-ink">{a.version || '?'}</span> installed, <span className="font-mono text-ink">{a.catalog!.version}</span> in
+                catalog
+              </div>
+              <div className="mt-0.5">Matched by {MATCH_LABEL[a.catalogMatch ?? 'name'].toLowerCase()}</div>
+            </div>
+            <div className="col-span-2 md:col-span-1">
+              {a.origin === 'market' ? (
+                <span className="text-xs text-muted">Linked</span>
+              ) : (
+                <Hint reason={!link.ok ? link.reason : busy ? 'Wait for the current operation to finish' : link.reason}>
+                  <Button size="sm" disabled={!link.ok || busy} onClick={() => linkToCatalog([a.path])}>
+                    Link
+                  </Button>
+                </Hint>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export function CatalogView() {
   const catalog = useStore((s) => s.catalog)
   const updates = useStore((s) => s.apps.filter((a) => a.catalog && a.updateAvailable).length)
   const installed = useInstalledIndex()
-  const [mode, setMode] = useState<'browse' | 'updates'>('browse')
+  const [mode, setMode] = useState<'browse' | 'device' | 'updates'>('browse')
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<string | null>(null)
   const [sort, setSort] = useState<Sort>('updated')
@@ -428,8 +525,8 @@ export function CatalogView() {
     <div className="scroll-thin h-full overflow-y-auto">
       <div className="sticky top-0 z-10 border-b border-line bg-bg/95 px-4 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="grid grid-cols-2 gap-1 rounded-lg bg-surface-2 p-1" role="tablist" aria-label="Catalog view">
-            {(['browse', 'updates'] as const).map((m) => (
+          <div className="grid grid-cols-3 gap-1 rounded-lg bg-surface-2 p-1" role="tablist" aria-label="Catalog view">
+            {(['browse', 'device', 'updates'] as const).map((m) => (
               <button
                 key={m}
                 type="button"
@@ -438,7 +535,7 @@ export function CatalogView() {
                 onClick={() => setMode(m)}
                 className={`h-7 rounded-md px-3 text-[13px] transition-colors ${mode === m ? 'bg-surface font-medium text-ink shadow-panel' : 'text-muted hover:text-ink'}`}
               >
-                {m === 'browse' ? 'Browse' : `Updates${updates ? ` (${updates})` : ''}`}
+                {m === 'browse' ? 'Browse' : m === 'device' ? 'On this Flipper' : `Updates${updates ? ` (${updates})` : ''}`}
               </button>
             ))}
           </div>
@@ -476,7 +573,7 @@ export function CatalogView() {
             href={CATALOG_CONTRIBUTE_URL}
             target="_blank"
             rel="noreferrer"
-            className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[13px] text-muted hover:bg-surface-2 hover:text-ink ${mode === 'updates' ? 'ml-auto' : ''}`}
+            className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[13px] text-muted hover:bg-surface-2 hover:text-ink ${mode !== 'browse' ? 'ml-auto' : ''}`}
           >
             <GithubLogoIcon size={16} aria-hidden /> Contribute
           </a>
@@ -511,6 +608,8 @@ export function CatalogView() {
 
       {mode === 'updates' ? (
         <UpdatesList onOpen={(c) => setOpenId(c.id)} />
+      ) : mode === 'device' ? (
+        <OnFlipperList onOpen={(c) => setOpenId(c.id)} />
       ) : catalog.status === 'error' ? (
         <div className="flex flex-col items-start gap-3 px-6 py-16 md:px-12">
           <h2 className="text-xl font-semibold tracking-tight text-ink">The catalog did not load</h2>

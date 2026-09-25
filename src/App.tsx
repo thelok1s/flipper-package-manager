@@ -1,4 +1,4 @@
-import { FunnelSimpleIcon } from '@phosphor-icons/react'
+import { FunnelSimpleIcon, SidebarSimpleIcon } from '@phosphor-icons/react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { AppsView } from './components/AppsView'
@@ -15,7 +15,7 @@ import { HistoryView } from './components/HistoryView'
 import { Sidebar } from './components/Sidebar'
 import { webSerialSupported } from './flipper/serial'
 import { connect, loadHistory } from './state/actions'
-import { useStore } from './state/store'
+import { setState, useStore } from './state/store'
 
 function useTheme() {
   const theme = useStore((s) => s.prefs.theme)
@@ -34,6 +34,7 @@ export default function App() {
   useTheme()
   const tab = useStore((s) => s.tab)
   const connected = useStore((s) => !!s.device)
+  const sidebarCollapsed = useStore((s) => s.prefs.sidebarCollapsed)
   const [filtersOpen, setFiltersOpen] = useState(false)
 
   useEffect(() => {
@@ -53,9 +54,23 @@ export default function App() {
           {needsDevice ? (
             <ConnectScreen />
           ) : tab === 'apps' ? (
-            <div className="grid h-full grid-cols-1 lg:grid-cols-[272px_1fr]">
+            <div className={`grid h-full grid-cols-1 ${sidebarCollapsed ? 'lg:grid-cols-[44px_1fr]' : 'lg:grid-cols-[272px_1fr]'}`}>
               <div className="hidden min-h-0 lg:block">
-                <Sidebar />
+                {sidebarCollapsed ? (
+                  <div className="flex h-full flex-col items-center border-r border-line bg-surface py-3">
+                    <button
+                      type="button"
+                      aria-label="Show filters and settings"
+                      title="Show filters and settings"
+                      onClick={() => setState((s) => ({ prefs: { ...s.prefs, sidebarCollapsed: false } }))}
+                      className="grid size-8 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-ink"
+                    >
+                      <SidebarSimpleIcon size={17} aria-hidden />
+                    </button>
+                  </div>
+                ) : (
+                  <Sidebar collapsible />
+                )}
               </div>
               <div className="min-h-0">
                 <AppsView />

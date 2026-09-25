@@ -1,14 +1,15 @@
-import { MagnifyingGlassIcon, XIcon } from '@phosphor-icons/react'
+import { CaretDownIcon, GearIcon, MagnifyingGlassIcon, SidebarSimpleIcon, XIcon } from '@phosphor-icons/react'
 import { useMemo } from 'react'
 import { emptyFilters, isOutdated, type Filters, type Origin } from '../lib/analyze'
 import { loadCatalog, loadOfficial, scan } from '../state/actions'
-import { setState, useStore } from '../state/store'
+import { setState, useStore, type Prefs } from '../state/store'
+import { ChipList } from './ChipList'
 import { ask } from './Confirm'
 import { ScanMethodPicker } from './ScanMethodPicker'
 import { Chip, SectionLabel, Switch } from './ui'
 
 const ORIGINS: { id: Origin; label: string }[] = [
-  { id: 'official', label: 'Official' },
+  { id: 'official', label: 'System' },
   { id: 'firmware', label: 'Firmware' },
   { id: 'market', label: 'Catalog' },
   { id: 'sideloaded', label: 'Sideloaded' },
@@ -16,11 +17,15 @@ const ORIGINS: { id: Origin; label: string }[] = [
 
 const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v])
 
-export function Sidebar() {
+export function Sidebar({ collapsible = false }: { collapsible?: boolean }) {
   const apps = useStore((s) => s.apps)
   const filters = useStore((s) => s.filters)
   const protectSystem = useStore((s) => s.prefs.protectSystem)
   const onlyCapital = useStore((s) => s.prefs.onlyCapitalFolders)
+  const showGpio = useStore((s) => s.prefs.showGpioBadge)
+  const showSource = useStore((s) => s.prefs.showSourceOnCards)
+  const settingsOpen = useStore((s) => s.prefs.settingsOpen)
+  const setPrefs = (p: Partial<Prefs>) => setState((s) => ({ prefs: { ...s.prefs, ...p } }))
   const scanning = useStore((s) => s.status === 'scanning')
   const catalog = useStore((s) => s.catalog)
   const official = useStore((s) => s.official)
@@ -76,6 +81,20 @@ export function Sidebar() {
 
   return (
     <aside className="scroll-thin flex h-full flex-col gap-6 overflow-y-auto border-r border-line bg-surface p-4" aria-label="Filters">
+      {collapsible && (
+        <div className="-mb-3 flex items-center justify-between">
+          <span className="text-sm font-medium text-ink">Filters</span>
+          <button
+            type="button"
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+            onClick={() => setPrefs({ sidebarCollapsed: true })}
+            className="grid size-7 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-ink"
+          >
+            <SidebarSimpleIcon size={16} aria-hidden />
+          </button>
+        </div>
+      )}
       <div className="flex flex-col gap-2">
         <label htmlFor="search" className="text-xs font-medium text-muted">
           Search
@@ -128,70 +147,102 @@ export function Sidebar() {
           hint={`${stats.moduleApps} apps that name GPIO modules like [ESP32]`}
         />
         {!filters.hideModuleApps && stats.modules.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {stats.modules.map(([m, n]) => (
-              <Chip key={m} active={filters.modules.includes(m)} count={n} onClick={() => set({ modules: toggle(filters.modules, m) })}>
-                <span className="font-mono text-xs">{m}</span>
-              </Chip>
-            ))}
+          <div className="mt-2">
+            <ChipList>
+              {stats.modules.map(([m, n]) => (
+                <Chip key={m} active={filters.modules.includes(m)} count={n} onClick={() => set({ modules: toggle(filters.modules, m) })}>
+                  <span className="font-mono text-xs">{m}</span>
+                </Chip>
+              ))}
+            </ChipList>
           </div>
         )}
       </div>
 
       <div>
         <SectionLabel>Folder</SectionLabel>
-        <div className="flex flex-wrap gap-1.5">
+        <ChipList>
           {stats.folders.map(([f, n]) => (
             <Chip key={f || '.'} active={filters.folders.includes(f)} count={n} onClick={() => set({ folders: toggle(filters.folders, f) })}>
               {f || 'apps root'}
             </Chip>
           ))}
-        </div>
+        </ChipList>
       </div>
 
-      <div className="border-t border-line pt-4">
-        <Switch
-          checked={onlyCapital}
-          onChange={(v) => {
-            if (scanning) return
-            setState((s) => ({ prefs: { ...s.prefs, onlyCapitalFolders: v } }))
-            void scan()
-          }}
-          label="Hide non-app assets"
-          hint="Skips internal and lowercase folders in /ext/apps"
-        />
-        <div className="mt-4">
-          <ScanMethodPicker />
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-3 border-t border-line pt-4">
-        <Switch
-          checked={protectSystem}
-          onChange={(v) => setState((s) => ({ prefs: { ...s.prefs, protectSystem: v } }))}
-          label="Protect firmware apps"
-          hint="Installed with device's firmware (usually non-stock). Protected apps can't be deleted or moved."
-        />
-        <div className={allowOfficial ? 'rounded-lg bg-danger-soft p-2 -m-2' : ''}>
-          <Switch
-            checked={allowOfficial}
-            onChange={toggleOfficial}
-            label="Allow removing system apps"
-            hint={
-              official.status === 'ready'
-                ? `Core apps from official firmware ${official.version} (${official.paths.size}). Off again after a reload.`
-                : official.status === 'loading'
-                  ? 'Loading the official app list'
-                  : 'Official app list unavailable, so no app is marked official.'
-            }
-          />
-          {official.status === 'error' && (
-            <button type="button" className="text-xs text-accent-ink underline" onClick={() => loadOfficial(target)}>
-              Retry loading the list
-            </button>
-          )}
-        </div>
-      </div>
+      <section className="border-t border-line pt-3">
+        <button
+          type="button"
+          aria-expanded={settingsOpen}
+          onClick={() => setPrefs({ settingsOpen: !settingsOpen })}
+          className="flex w-full items-center gap-2 py-1 text-sm font-medium text-ink"
+        >
+          <GearIcon size={16} aria-hidden />
+          Settings
+          <CaretDownIcon size={14} className={`ml-auto text-muted transition-transform ${settingsOpen ? '' : '-rotate-90'}`} aria-hidden />
+        </button>
+        {settingsOpen && (
+          <div className="mt-3 flex flex-col gap-5">
+            <div className="flex flex-col gap-3">
+              <SectionLabel>Scanning</SectionLabel>
+              <Switch
+                checked={onlyCapital}
+                onChange={(v) => {
+                  if (scanning) return
+                  setPrefs({ onlyCapitalFolders: v })
+                  void scan()
+                }}
+                label="Hide non-app assets"
+                hint="Skips internal and lowercase folders in /ext/apps"
+              />
+              <ScanMethodPicker />
+            </div>
+            <div className="flex flex-col gap-3">
+              <SectionLabel>Protection</SectionLabel>
+              <Switch
+                checked={protectSystem}
+                onChange={(v) => setPrefs({ protectSystem: v })}
+                label="Protect firmware apps"
+                hint="Installed with device's firmware (usually non-stock). Protected apps can't be deleted or moved."
+              />
+              <div className={allowOfficial ? 'rounded-lg bg-danger-soft p-2 -m-2' : ''}>
+                <Switch
+                  checked={allowOfficial}
+                  onChange={toggleOfficial}
+                  label="Allow removing system apps"
+                  hint={
+                    official.status === 'ready'
+                      ? `Core apps from official firmware ${official.version} (${official.paths.size}). Off again after a reload.`
+                      : official.status === 'loading'
+                        ? 'Loading the official app list'
+                        : 'Official app list unavailable, so no app is marked official.'
+                  }
+                />
+                {official.status === 'error' && (
+                  <button type="button" className="text-xs text-accent-ink underline" onClick={() => loadOfficial(target)}>
+                    Retry loading the list
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-col gap-3">
+              <SectionLabel>Display</SectionLabel>
+              <Switch
+                checked={showGpio}
+                onChange={(v) => setPrefs({ showGpioBadge: v })}
+                label="GPIO badge"
+                hint="Marks apps that use the GPIO header or an add-on board"
+              />
+              <Switch
+                checked={showSource}
+                onChange={(v) => setPrefs({ showSourceOnCards: v })}
+                label="System and firmware badges on icons"
+                hint="Shows which apps belong to the firmware in the icon view too"
+              />
+            </div>
+          </div>
+        )}
+      </section>
 
       <div className="mt-auto text-xs leading-relaxed text-muted">
         {catalog.status === 'ready' && `Catalog loaded: ${catalog.byAlias.size} apps`}

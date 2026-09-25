@@ -130,3 +130,58 @@ describe('installFromCatalog', () => {
     expect(s.op).toBeNull()
   })
 })
+
+describe('linking and reclaiming', () => {
+  const rec = (version: string, origin: 'sideloaded' | 'market' | 'firmware' = 'sideloaded') => {
+    const [maj, min] = version.split('.').map(Number)
+    const info = parseFap(buildFap({ name: 'Bounce', apiMajor: 87, apiMinor: 1, versionMajor: maj, versionMinor: min }))
+    const r = buildRecord({ path: '/ext/apps/Games/bounce.fap', size: 1 }, info, {
+      device,
+      systemPaths: origin === 'firmware' ? new Map([['/ext/apps/games/bounce.fap', '']]) : new Map(),
+      official: null,
+      fims: origin === 'market' ? [fim('v2-id', '87.1')] : [],
+      catalog: new Map([['bounce', cat]]),
+      catalogByName: null,
+      catalogById: new Map([[cat.id, cat]]),
+    })
+    return r
+  }
+
+  it('links only copies the catalog can vouch for', async () => {
+    const { linkState, OLDER_THAN_CATALOG } = await import('../lib/analyze')
+    const none = new Set<string>()
+    expect(linkState(rec('1.2'), none)).toMatchObject({ ok: true, versionUid: 'v2-id' })
+    expect(linkState(rec('1.0'), none)).toMatchObject({ ok: true, versionUid: OLDER_THAN_CATALOG })
+    expect(linkState(rec('2.0'), none).ok).toBe(false) // newer than the catalog
+    expect(linkState(rec('1.2', 'market'), none).ok).toBe(false) // already linked
+    expect(linkState(rec('1.2', 'firmware'), none).ok).toBe(false) // the firmware manages it
+    expect(linkState(rec('1.2'), new Set(['bounce.fim'])).ok).toBe(false) // another copy is linked
+    expect(rec('1.2').catalogMatch).toBe('alias')
+  })
+
+  it('refuses to install a second copy', async () => {
+    setState({ device: { kind: 'serial' } as FlipperDevice, deviceInfo: device, op: null, apps: [rec('1.2')], toasts: [] })
+    expect(await installFromCatalog(cat)).toBe(false)
+    expect(getState().toasts.at(-1)?.text).toMatch(/already on the Flipper/)
+  })
+
+  it('reclaims only backups the catalog can replace', async () => {
+    const { reclaimSpace, catalogFor } = await import('./actions')
+    const base = { ts: 1, kind: 'delete' as const, path: '/ext/apps/Games/bounce.fap', appId: 'bounce', name: 'Bounce', urls: [], backup: new Uint8Array(100) }
+    setState({
+      device: null,
+      history: [
+        { ...base, id: 'same', version: '1.2', catalogId: cat.id },
+        { ...base, id: 'newer', version: '9.0', catalogId: cat.id },
+        { ...base, id: 'unknown', version: '1.0' },
+      ],
+    })
+    expect(catalogFor(getState().history[0])).toBe(cat)
+    const r = await reclaimSpace()
+    expect(r).toMatchObject({ entries: 1, bytes: 100 })
+    const byId = new Map(getState().history.map((h) => [h.id, h]))
+    expect(byId.get('same')).toMatchObject({ backup: undefined, reinstallFromCatalog: true })
+    expect(byId.get('newer')?.backup).toBeDefined()
+    expect(byId.get('unknown')?.backup).toBeDefined()
+  })
+})

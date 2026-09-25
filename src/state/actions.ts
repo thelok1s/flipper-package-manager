@@ -1,7 +1,7 @@
 import { SerialFlipper } from '../flipper/serial'
 import type { FlipperDevice } from '../flipper/types'
-import { buildRecord, markDuplicates, normalizeName, type AppRecord } from '../lib/analyze'
-import { downloadBuild, fetchCatalog, fetchDetail, fetchIconBase64, type CatalogApp } from '../lib/catalog'
+import { buildRecord, linkState, markDuplicates, normalizeName, type AppRecord } from '../lib/analyze'
+import { compareVersions, downloadBuild, fetchCatalog, fetchDetail, fetchIconBase64, type CatalogApp } from '../lib/catalog'
 import { fapCache, history, newId, sourceNotes, type HistoryEntry } from '../lib/db'
 import { parseFap } from '../lib/fap'
 import { loadOfficialApps } from '../lib/official'
@@ -314,6 +314,7 @@ function snapshot(app: AppRecord) {
     iconPixels: app.info.manifest?.icon ?? null,
     urls: [getState().notes.get(app.appId), ...app.info.urls].filter((u): u is string => !!u),
     labAlias: app.catalog?.alias,
+    catalogId: app.catalog?.id,
   }
 }
 
@@ -439,10 +440,27 @@ export async function loadFullInfo(path: string) {
 }
 
 
+/** Catalog listing a history entry can be reinstalled from, if the catalog still has it. */
+export function catalogFor(entry: HistoryEntry): CatalogApp | undefined {
+  const c = getState().catalog
+  return (entry.catalogId ? c.byId.get(entry.catalogId) : undefined) ?? (entry.labAlias ? c.byAlias.get(entry.labAlias.toLowerCase()) : undefined)
+}
+
+async function markRestored(entry: HistoryEntry) {
+  const updated: HistoryEntry = { ...entry, restoredAt: Date.now() }
+  await history.put(updated)
+  setState((s) => ({ history: s.history.map((h) => (h.id === entry.id ? updated : h)) }))
+}
+
 export async function restore(entry: HistoryEntry) {
   const d = requireDevice()
   if (!entry.backup) {
-    toast('No backup stored for this entry. Use the source links instead.', 'info')
+    const cat = catalogFor(entry)
+    if (cat && (await installFromCatalog(cat))) {
+      await markRestored(entry)
+      return
+    }
+    toast(cat ? 'Reinstalling from the catalog failed.' : 'No backup stored and the app is not in the catalog. Use the source links instead.', 'info')
     return
   }
   const backup = entry.backup
@@ -458,9 +476,7 @@ export async function restore(entry: HistoryEntry) {
         await d.write(joinPath(FIM_DIR, fim.file), enc.encode(entry.fimText))
         fims = [...fims.filter((f) => f.file !== fim.file), fim]
       }
-      const updated: HistoryEntry = { ...entry, restoredAt: Date.now() }
-      await history.put(updated)
-      setState((s) => ({ history: s.history.map((h) => (h.id === entry.id ? updated : h)) }))
+      await markRestored(entry)
       await record({ kind: 'restore', path, appId: entry.appId, name: entry.name, version: entry.version, api: entry.api, iconPixels: entry.iconPixels, urls: entry.urls, labAlias: entry.labAlias })
       const info = parseFap(backup)
       const folder = dirname(path).slice(APPS_ROOT.length + 1)
@@ -474,6 +490,37 @@ export async function restore(entry: HistoryEntry) {
       toast(`Restore failed: ${errorText(e)}`, 'error')
     }
   })
+}
+
+/** Drops stored .fap copies but keeps the entries. */
+export async function clearBackups(entries: HistoryEntry[]) {
+  const updated = entries.filter((e) => e.backup).map((e) => ({ ...e, backup: undefined }))
+  for (const e of updated) await history.put(e)
+  const byId = new Map(updated.map((e) => [e.id, e]))
+  setState((s) => ({ history: s.history.map((h) => byId.get(h.id) ?? h) }))
+  return updated.length
+}
+
+/**
+ * Frees browser storage without losing anything that cannot be fetched again:
+ * - backups of apps the catalog still offers at the same or a newer version are dropped, and
+ *   Restore reinstalls those from the catalog;
+ * - parsed-manifest cache entries for files no longer on the Flipper are removed.
+ */
+export async function reclaimSpace() {
+  const s = getState()
+  const replaceable = s.history.filter((e) => {
+    if (!e.backup || e.restoredAt) return false
+    const cat = catalogFor(e)
+    return !!cat && !!e.version && compareVersions(e.version, cat.version) <= 0
+  })
+  const freed = replaceable.reduce((n, e) => n + (e.backup?.length ?? 0), 0)
+  const updated = replaceable.map((e) => ({ ...e, backup: undefined, reinstallFromCatalog: true }))
+  for (const e of updated) await history.put(e)
+  const byId = new Map(updated.map((e) => [e.id, e]))
+  setState((st) => ({ history: st.history.map((h) => byId.get(h.id) ?? h) }))
+  const pruned = s.device ? await fapCache.prune(new Set(s.scanned.map((f) => f.path.toLowerCase()))) : 0
+  return { entries: updated.length, bytes: freed, cacheEntries: pruned }
 }
 
 export async function forgetHistory(entry: HistoryEntry) {
@@ -500,6 +547,12 @@ export async function installFromCatalog(cat: CatalogApp, replacePath?: string):
   const info = s.deviceInfo
   if (!info || s.op) return false
   const old = replacePath ? s.apps.find((a) => a.path === replacePath) : undefined
+  // Never install a second copy of an app the scan already found on the Flipper.
+  const existing = installedCopies(cat.id)
+  if (!old && existing.length) {
+    toast(`${cat.name} is already on the Flipper at ${existing[0].path.replace('/ext/', '')}`, 'info')
+    return false
+  }
   if (old && isProtected(old)) {
     toast(`${old.name} is protected. Change protection in the sidebar to replace it.`, 'info')
     return false
@@ -565,6 +618,44 @@ export async function installFromCatalog(cat: CatalogApp, replacePath?: string):
     },
     cat.id,
   )
+}
+
+/**
+ * Registers existing copies as catalog installs by writing the .fim that lab.flipper.net would have
+ * written. Nothing is downloaded; see linkState for the conditions.
+ */
+export async function linkToCatalog(paths: string[]) {
+  const d = requireDevice()
+  const info = getState().deviceInfo
+  if (!info || getState().op) return 0
+  let linked = 0
+  await withOp(`Linking ${paths.length} app${paths.length === 1 ? '' : 's'} to the catalog`, paths.length, async (step) => {
+    await ensureDir(d, FIM_DIR)
+    for (const path of paths) {
+      const s = getState()
+      const app = s.apps.find((a) => a.path === path)
+      const fimNames = new Set(s.fims.map((f) => f.file.toLowerCase()))
+      const state = app ? linkState(app, fimNames) : null
+      if (!app?.catalog || !state?.ok || !state.versionUid) {
+        step()
+        continue
+      }
+      const cat = app.catalog
+      try {
+        const iconBase64 = await fetchIconBase64(cat.iconUri).catch(() => '')
+        const fimText = buildFim({ name: cat.name, iconBase64, api: app.api, uid: cat.id, versionUid: state.versionUid, path })
+        await d.write(joinPath(FIM_DIR, `${cat.alias}.fim`), enc.encode(fimText))
+        const fim = parseFim(fimText, `${cat.alias}.fim`)
+        rebuild({ fims: [...getState().fims.filter((f) => f.file !== fim.file), fim] })
+        linked++
+      } catch (e) {
+        toast(`Could not link ${app.name}: ${errorText(e)}`, 'error')
+      }
+      step(`Linked ${app.name}`)
+    }
+  })
+  if (linked) toast(`Linked ${linked} app${linked === 1 ? '' : 's'} to the catalog`, 'success')
+  return linked
 }
 
 /** Swaps an installed copy for the catalog build that matches this firmware. */

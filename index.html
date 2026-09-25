@@ -2,16 +2,36 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Flipper Package Manager</title>
+    <meta name="description" content="Install, update and clean up the apps on your Flipper Zero over USB, right in the browser." />
     <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="shortcut icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <!-- PWA -->
     <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0f1012" />
     <meta name="apple-mobile-web-app-title" content="Flipper PM" />
-    <meta name="theme-color" content="#ff8200" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Browse, clean up and organise the apps on your Flipper Zero over USB." />
-    <title>Flipper Package Manager</title>
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- Open Graph / Twitter. %SITE_URL% is filled in at build time (see vite.config.ts). -->
+    <link rel="canonical" href="%SITE_URL%/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Flipper Package Manager" />
+    <meta property="og:title" content="Flipper Package Manager" />
+    <meta property="og:description" content="Install, update and clean up the apps on your Flipper Zero, right in the browser." />
+    <meta property="og:url" content="%SITE_URL%/" />
+    <meta property="og:image" content="%SITE_URL%/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Flipper Package Manager: the pixel logo next to the app name" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Flipper Package Manager" />
+    <meta name="twitter:description" content="Install, update and clean up the apps on your Flipper Zero, right in the browser." />
+    <meta name="twitter:image" content="%SITE_URL%/og.png" />
   </head>
   <body>
     <div id="root"></div>

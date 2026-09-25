@@ -33,6 +33,8 @@ export interface AppRecord {
   fim?: Fim
   modules: string[]
   catalog?: CatalogApp
+  /** How the catalog listing was found: the .fim's UID, the file name (alias) or the manifest name. */
+  catalogMatch?: 'fim' | 'alias' | 'name'
   updateAvailable: boolean
   duplicateGroup?: string
   duplicateRank?: number
@@ -112,7 +114,10 @@ export function buildRecord(
   const origin: Origin = official ? 'official' : onDevice ? 'firmware' : fim ? 'market' : 'sideloaded'
   const version = m ? `${m.versionMajor}.${m.versionMinor}` : ''
   const byUid = fim ? ctx.catalogById?.get(fim.uid) : undefined
-  const catalog = byUid ?? ctx.catalog?.get(appId.toLowerCase()) ?? ctx.catalogByName?.get(normalizeName(name))
+  const byAlias = byUid ? undefined : ctx.catalog?.get(appId.toLowerCase())
+  const byName = byUid || byAlias ? undefined : ctx.catalogByName?.get(normalizeName(name))
+  const catalog = byUid ?? byAlias ?? byName
+  const catalogMatch = byUid ? 'fim' : byAlias ? 'alias' : byName ? 'name' : undefined
   return {
     path: file.path,
     dir,
@@ -130,6 +135,7 @@ export function buildRecord(
     fim,
     modules: moduleTags(name),
     catalog,
+    catalogMatch,
     updateAvailable: !!catalog && needsUpdate(catalog, fim, !!byUid, version, ctx.device),
   }
 }
@@ -232,4 +238,32 @@ export function applyFilters(apps: AppRecord[], f: Filters) {
     if (f.folders.length && !f.folders.includes(a.folder)) return false
     return true
   })
+}
+
+export interface LinkState {
+  ok: boolean
+  /** Why the app can or cannot be linked, in plain words. */
+  reason: string
+  /** Version UID to write into the .fim. An older build gets a placeholder so an update is offered. */
+  versionUid?: string
+}
+
+export const OLDER_THAN_CATALOG = 'fpm-linked-older'
+
+/**
+ * Whether a copy on the Flipper can be registered as a catalog install by writing a .fim for it,
+ * the way lab.flipper.net would after installing it. `fimNames` are the .fim files already present.
+ */
+export function linkState(app: AppRecord, fimNames: Set<string>): LinkState {
+  const cat = app.catalog
+  if (!cat) return { ok: false, reason: 'Not in the catalog' }
+  if (app.origin === 'market') return { ok: false, reason: 'Already linked to the catalog' }
+  if (app.origin === 'official' || app.origin === 'firmware') return { ok: false, reason: 'Installed by the firmware, which manages it' }
+  if (!app.info.manifest) return { ok: false, reason: 'Its manifest could not be read' }
+  if (app.compat === 'target') return { ok: false, reason: 'Built for different hardware' }
+  if (fimNames.has(`${cat.alias}.fim`.toLowerCase())) return { ok: false, reason: 'Another copy is already linked to this listing' }
+  const cmp = compareVersions(app.version, cat.version)
+  if (cmp > 0) return { ok: false, reason: `Newer than the catalog (${app.version} vs ${cat.version})` }
+  if (cmp < 0) return { ok: true, reason: `Older than the catalog (${app.version} vs ${cat.version}); an update will be offered`, versionUid: OLDER_THAN_CATALOG }
+  return { ok: true, reason: `Same version as the catalog (${cat.version})`, versionUid: cat.versionId }
 }

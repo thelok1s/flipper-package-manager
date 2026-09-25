@@ -26,6 +26,9 @@ Import the GitHub repo in Vercel. The framework (Vite), build command and output
 | Folder explorer | Drag apps onto folders, the tree or the `..` tile. Create or remove empty folders |
 | Catalog (Flipper Lab's Apps page) | Browse all apps with builds for your firmware's API: category chips, search, sort, Lab-style screenshot cards, details with description, changelog and links. Install writes `/ext/apps/<Category>/<alias>.fap` and a `.fim` manifest exactly like lab.flipper.net |
 | Updates | Catalog installs update when the latest compatible version or build API differs from their `.fim` (Lab's rule). Sideloaded apps matched by name or alias can be replaced with the catalog build. Update one or Update all; previous versions stay restorable in History |
+| Linking | Apps found on the Flipper that match a catalog listing (by `.fim`, file name or app name) are shown as installed so they are never installed twice. Copies at the catalog version or older can be linked: FPM writes the `.fim` Lab would have written, without downloading anything |
+| History storage | Stored `.fap` copies can be removed per entry or all at once, keeping the entries. Reclaim space drops copies the catalog can replace (same or newer version; Restore then reinstalls from the catalog) and prunes cached manifests of removed files |
+| PWA and sharing | Installable as an app (web manifest, icons). Open Graph and Twitter tags with a 1200x630 preview; absolute URLs come from `SITE_URL` or Vercel's production domain at build time |
 | History and restore | IndexedDB keeps every delete, move and replace, including the original `.fap` bytes, so deleted apps can be restored. Links: Flipper Lab page, repo links found inside the binary, and your own saved source URL |
 | Views | Icons, details list, grouped by folder. Sort by name, folder, compatibility, version, API or size. Prefs and filters persist in localStorage |
 

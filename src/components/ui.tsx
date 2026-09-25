@@ -1,4 +1,5 @@
-import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from 'react'
+import { useRef, useState, type ButtonHTMLAttributes, type ComponentProps, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { Icon } from '@phosphor-icons/react'
 
 /** Radius system: 8px on controls and panels, full pill on chips and badges. */
@@ -124,3 +125,45 @@ export const formatDate = (ts: number) =>
 
 export const formatEta = (sec?: number) =>
   sec === undefined ? '' : sec < 60 ? `about ${Math.max(5, Math.ceil(sec / 5) * 5)} s left` : `about ${Math.ceil(sec / 60)} min left`
+
+/**
+ * Explains why a control is unavailable. Disabled buttons receive no pointer events, so the tip
+ * lives on this wrapper and shows on hover or keyboard focus. It renders in a portal with fixed
+ * positioning so scrolling panels cannot clip it.
+ */
+export function Hint({ reason, children, className = '' }: { reason?: string | false | null; children: ReactNode; className?: string }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [pos, setPos] = useState<{ x: number; y: number; below: boolean } | null>(null)
+  if (!reason) return <>{children}</>
+  const show = () => {
+    const r = ref.current?.getBoundingClientRect()
+    if (!r) return
+    const below = r.top < 80
+    setPos({ x: Math.min(Math.max(r.left + r.width / 2, 140), window.innerWidth - 140), y: below ? r.bottom + 8 : r.top - 8, below })
+  }
+  return (
+    <span
+      ref={ref}
+      className={`relative inline-flex ${className}`}
+      tabIndex={0}
+      aria-label={reason}
+      onMouseEnter={show}
+      onMouseLeave={() => setPos(null)}
+      onFocus={show}
+      onBlur={() => setPos(null)}
+    >
+      {children}
+      {pos &&
+        createPortal(
+          <span
+            role="tooltip"
+            className="pointer-events-none fixed z-[70] w-max max-w-64 rounded-md bg-ink px-2.5 py-1.5 text-xs leading-snug text-bg shadow-panel"
+            style={{ left: pos.x, top: pos.y, transform: `translate(-50%, ${pos.below ? '0' : '-100%'})` }}
+          >
+            {reason}
+          </span>,
+          document.body,
+        )}
+    </span>
+  )
+}

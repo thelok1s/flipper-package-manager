@@ -8,17 +8,17 @@ import {
   XIcon,
 } from '@phosphor-icons/react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useState, type ReactNode } from 'react'
-import { COMPAT_LABEL } from '../lib/analyze'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { COMPAT_LABEL, linkState } from '../lib/analyze'
 import { labAppUrl, type CatalogDetail } from '../lib/catalog'
-import { isProtected, loadFullInfo, moveApps, replaceWithMarket, resolveCatalogSource, setSourceNote } from '../state/actions'
+import { isProtected, linkToCatalog, loadFullInfo, moveApps, replaceWithMarket, resolveCatalogSource, setSourceNote } from '../state/actions'
 import { setState, useStore } from '../state/store'
 import { AppBadges } from './AppBadges'
 import { AppIcon } from './AppIcon'
 import { LabIcon } from './LabIcon'
 import { confirmDelete } from './AppsView'
 import { ask } from './Confirm'
-import { Button, IconButton, formatSize } from './ui'
+import { Button, Hint, IconButton, formatSize } from './ui'
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -75,7 +75,11 @@ export function DetailDrawer() {
 
   const deviceApi = info ? `${info.apiMajor}.${info.apiMinor}` : undefined
   const locked = useStore(() => (app ? isProtected(app) : false))
-  const lockReason = app?.origin === 'official' ? 'Official app. Allow removing system apps in the sidebar first.' : 'Firmware app, protected in the sidebar'
+  const lockReason = app?.origin === 'official' ? 'System app. Turn on Allow removing system apps in Settings first.' : 'Firmware app. Turn off Protect firmware apps in Settings first.'
+  const busyReason = busy ? 'Wait for the current operation to finish' : null
+  const fims = useStore((s) => s.fims)
+  const fimNames = useMemo(() => new Set(fims.map((f) => f.file.toLowerCase())), [fims])
+  const link = app ? linkState(app, fimNames) : null
 
   const onReplace = async () => {
     if (!app?.catalog || !info) return
@@ -128,13 +132,17 @@ export function DetailDrawer() {
 
           <div className="mt-4 flex flex-wrap gap-2 px-5">
             {app.catalog && (app.origin !== 'market' || app.updateAvailable || app.compat !== 'ok') && app.origin !== 'official' && app.origin !== 'firmware' && (
-              <Button tone="primary" icon={DownloadSimpleIcon} disabled={busy} onClick={onReplace}>
-                {app.origin === 'market' ? 'Update from catalog' : 'Replace with catalog'}
-              </Button>
+              <Hint reason={busyReason}>
+                <Button tone="primary" icon={DownloadSimpleIcon} disabled={busy} onClick={onReplace}>
+                  {app.origin === 'market' ? 'Update from catalog' : 'Replace with catalog'}
+                </Button>
+              </Hint>
             )}
-            <Button tone="danger" icon={TrashIcon} disabled={locked || busy} onClick={() => confirmDelete([app.path])} title={locked ? lockReason : undefined}>
-              Delete
-            </Button>
+            <Hint reason={locked ? lockReason : busyReason}>
+              <Button tone="danger" icon={TrashIcon} disabled={locked || busy} onClick={() => confirmDelete([app.path])}>
+                Delete
+              </Button>
+            </Hint>
           </div>
 
           <dl className="mt-5 border-t border-line px-5 py-3">
@@ -161,7 +169,8 @@ export function DetailDrawer() {
               <label htmlFor="move-select" className="sr-only">
                 Move to folder
               </label>
-              <div className="flex items-center gap-2">
+              <Hint reason={locked ? lockReason.replace('Turn', 'To move it, turn') : busyReason} className="w-full">
+              <div className="flex w-full items-center gap-2">
                 <FolderSimpleIcon size={14} className="text-muted" aria-hidden />
                 <select
                   id="move-select"
@@ -177,6 +186,7 @@ export function DetailDrawer() {
                   ))}
                 </select>
               </div>
+              </Hint>
             </Row>
           </dl>
 
@@ -200,8 +210,20 @@ export function DetailDrawer() {
                   </Row>
                 )}
                 {app.catalog.shortDescription && <p className="mt-2 text-[13px] leading-relaxed text-muted">{app.catalog.shortDescription}</p>}
-                {app.origin === 'sideloaded' && (
-                  <p className="mt-2 text-xs leading-relaxed text-muted">Matched by {app.catalog.alias.toLowerCase() === app.appId.toLowerCase() ? 'file name' : 'app name'}. This copy was not installed through the catalog.</p>
+                <Row label="Matched by">
+                  {app.catalogMatch === 'fim' ? 'Catalog manifest (.fim)' : app.catalogMatch === 'alias' ? 'File name' : 'App name'}
+                </Row>
+                {app.origin !== 'market' && link && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Hint reason={!link.ok ? link.reason : busyReason}>
+                      <Button size="sm" disabled={!link.ok || busy} onClick={() => linkToCatalog([app.path])}>
+                        Link to catalog
+                      </Button>
+                    </Hint>
+                    <span className="text-xs leading-snug text-muted">
+                      {link.ok ? `Writes a .fim so this copy counts as a catalog install. ${link.reason}.` : link.reason}
+                    </span>
+                  </div>
                 )}
               </dl>
             ) : (
@@ -213,6 +235,10 @@ export function DetailDrawer() {
             <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-ink">
               <LinkSimpleIcon size={14} aria-hidden /> Links inside the app
             </h3>
+            <p className="mb-2 text-xs leading-relaxed text-muted">
+              Web addresses written inside the app file, usually the author's repository shown on an About screen. FPM finds them by searching the
+              binary.
+            </p>
             {app.info.partial ? (
               <p className="animate-pulse text-[13px] text-muted">Reading the app file for links</p>
             ) : app.info.urls.length ? (
@@ -233,9 +259,13 @@ export function DetailDrawer() {
                 void setSourceNote(app.appId, draft)
               }}
             >
-              <label htmlFor="source-note" className="text-xs text-muted">
-                Your source link (fap_weburl), saved in this browser
+              <label htmlFor="source-note" className="text-xs font-medium text-ink">
+                Your source link
               </label>
+              <p className="text-xs leading-relaxed text-muted">
+                A .fap does not carry its project URL (fap_weburl lives in the build manifest, not the binary). Save one here to keep it with this
+                app. It stays in this browser and is shown in History if you delete the app.
+              </p>
               <div className="flex gap-2">
                 <input
                   id="source-note"

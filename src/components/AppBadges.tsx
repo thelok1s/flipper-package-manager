@@ -1,6 +1,10 @@
-import { LockSimpleIcon, ShieldCheckIcon, StorefrontIcon, WarningIcon } from '@phosphor-icons/react'
+import { CpuIcon, LockSimpleIcon, ShieldCheckIcon, StorefrontIcon, WarningIcon } from '@phosphor-icons/react'
 import { COMPAT_LABEL, type AppRecord } from '../lib/analyze'
+import { useStore } from '../state/store'
 import { Badge } from './ui'
+
+/** Fallback when the catalog (which defines the GPIO category colour) has not loaded. */
+const GPIO_FALLBACK = 'A5E5F5'
 
 export function CompatBadge({ app, device }: { app: AppRecord; device?: string }) {
   if (app.compat === 'ok') return null
@@ -19,25 +23,28 @@ export function CompatBadge({ app, device }: { app: AppRecord; device?: string }
   )
 }
 
-/** Severity, highest first: Official (solid), Firmware (outlined lock), Catalog (tinted), Sideloaded (plain). */
+/**
+ * Severity, highest first. System and Firmware use Flipper orange (solid, then tinted) to show
+ * they belong to the firmware; Catalog and Sideloaded stay neutral.
+ */
 export function OriginBadge({ app }: { app: AppRecord }) {
   if (app.origin === 'official')
     return (
-      <Badge tone="strong" title="Ships with official Flipper firmware. Removing it needs an explicit override.">
+      <Badge tone="strong" title="Ships with official Flipper firmware. Removing it needs Allow removing system apps.">
         <ShieldCheckIcon size={11} weight="bold" aria-hidden />
-        Official
+        System
       </Badge>
     )
   if (app.origin === 'firmware')
     return (
-      <Badge title="Installed by this device's firmware (listed in /ext/Manifest)">
+      <Badge tone="accent" title="Installed by this device's firmware (listed in /ext/Manifest)">
         <LockSimpleIcon size={11} weight="bold" aria-hidden />
         Firmware
       </Badge>
     )
   if (app.origin === 'market')
     return (
-      <Badge tone="accent" title="Installed from the Flipper catalog (lab.flipper.net or the mobile app)">
+      <Badge title="Installed from the Flipper catalog (lab.flipper.net, the mobile app or FPM)">
         <StorefrontIcon size={11} weight="bold" aria-hidden />
         Catalog
       </Badge>
@@ -45,14 +52,38 @@ export function OriginBadge({ app }: { app: AppRecord }) {
   return <Badge title="Copied to the SD card by hand or by another tool">Sideloaded</Badge>
 }
 
+/** Apps that use the GPIO header: named add-on boards, the GPIO folder, or the catalog's GPIO category. */
+export function usesGpio(app: AppRecord, gpioCategoryId?: string) {
+  return app.modules.length > 0 || app.folder.toLowerCase() === 'gpio' || (!!gpioCategoryId && app.catalog?.categoryId === gpioCategoryId)
+}
+
+export function GpioBadge({ app }: { app: AppRecord }) {
+  const gpio = useStore((s) => s.catalog.categoryList.find((c) => c.name.toLowerCase() === 'gpio'))
+  if (!usesGpio(app, gpio?.id)) return null
+  const color = `#${gpio?.color ?? GPIO_FALLBACK}`
+  return (
+    <span
+      title={app.modules.length ? `Needs an add-on board: ${app.modules.join(', ')}` : 'Uses the GPIO header'}
+      className="inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-full px-2 text-[11px] font-medium"
+      style={{ backgroundColor: color, color: '#1b1a19' }}
+    >
+      <CpuIcon size={11} weight="bold" aria-hidden />
+      {app.modules.length ? <span className="font-mono">{app.modules.join(' ')}</span> : 'GPIO'}
+    </span>
+  )
+}
+
 export function AppBadges({ app, device, compact = false }: { app: AppRecord; device?: string; compact?: boolean }) {
+  const showGpio = useStore((s) => s.prefs.showGpioBadge)
+  const showSource = useStore((s) => !compact || s.prefs.showSourceOnCards)
   return (
     <span className="flex flex-wrap items-center gap-1">
       <CompatBadge app={app} device={device} />
-      {!compact && <OriginBadge app={app} />}
+      {showSource && (app.origin === 'official' || app.origin === 'firmware' || !compact) && <OriginBadge app={app} />}
+      {showGpio && <GpioBadge app={app} />}
       {app.duplicateGroup && app.duplicateRank! > 0 && <Badge title="Another copy of this app is a better fit">Older copy</Badge>}
       {app.updateAvailable && <Badge tone="accent">Update {app.catalog?.version}</Badge>}
-      {!compact && app.modules.map((m) => <Badge key={m}><span className="font-mono">{m}</span></Badge>)}
+      {!showGpio && !compact && app.modules.map((m) => <Badge key={m}><span className="font-mono">{m}</span></Badge>)}
     </span>
   )
 }
