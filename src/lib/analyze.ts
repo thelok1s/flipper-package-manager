@@ -111,7 +111,9 @@ export function buildRecord(
   const onDevice = ctx.systemPaths.has(lower)
   // A fork may move an official app to another folder; its firmware manifest still lists it.
   const official = !!ctx.official && (ctx.official.paths.has(lower) || (onDevice && ctx.official.fileNames.has(fileName.toLowerCase())))
-  const origin: Origin = official ? 'official' : onDevice ? 'firmware' : fim ? 'market' : 'sideloaded'
+  // A .fim means the catalog manages the file now (Lab and the mobile app treat it as installed),
+  // even when the firmware originally put a copy at the same path.
+  const origin: Origin = official ? 'official' : fim ? 'market' : onDevice ? 'firmware' : 'sideloaded'
   const version = m ? `${m.versionMajor}.${m.versionMinor}` : ''
   const byUid = fim ? ctx.catalogById?.get(fim.uid) : undefined
   const byAlias = byUid ? undefined : ctx.catalog?.get(appId.toLowerCase())
@@ -266,4 +268,40 @@ export function linkState(app: AppRecord, fimNames: Set<string>): LinkState {
   if (cmp > 0) return { ok: false, reason: `Newer than the catalog (${app.version} vs ${cat.version})` }
   if (cmp < 0) return { ok: true, reason: `Older than the catalog (${app.version} vs ${cat.version}); an update will be offered`, versionUid: OLDER_THAN_CATALOG }
   return { ok: true, reason: `Same version as the catalog (${cat.version})`, versionUid: cat.versionId }
+}
+
+/** A catalog install as Flipper Lab and the mobile app see it: one per .fim in /ext/apps_manifests. */
+export interface CatalogInstall {
+  fim: Fim
+  catalog?: CatalogApp
+  /** The scanned file at the .fim's path, if the scan found it. */
+  app?: AppRecord
+  updateAvailable: boolean
+  /** Why Lab would not list it, when it would not. */
+  hiddenInLab?: string
+}
+
+/**
+ * Mirrors lab.flipper.net's installed-apps logic (entities/Apps/model/stores.ts): start from the
+ * .fim files, look each UID up in the catalog's latest compatible builds, and flag an update when
+ * the version UID or the build API differs. Files do not need to exist for Lab to list them.
+ */
+export function catalogInstalls(fims: Fim[], apps: AppRecord[], byId: Map<string, CatalogApp> | null, device: DeviceInfo | null): CatalogInstall[] {
+  const deviceApi = device ? `${device.apiMajor}.${device.apiMinor}` : ''
+  const byPath = new Map(apps.map((a) => [a.path.toLowerCase(), a]))
+  return fims.map((fim) => {
+    const catalog = byId?.get(fim.uid)
+    const hiddenInLab = fim.devCatalog
+      ? 'Installed from the development catalog'
+      : !fim.uid || !fim.versionUid || !fim.fullName || !fim.iconBase64 || !fim.buildApi || !fim.path
+        ? 'Its .fim is missing a field (Lab skips incomplete manifests)'
+        : undefined
+    return {
+      fim,
+      catalog,
+      app: byPath.get(fim.path.toLowerCase()),
+      updateAvailable: !!catalog && !hiddenInLab && (fim.versionUid !== catalog.versionId || (!!deviceApi && fim.buildApi !== deviceApi)),
+      hiddenInLab,
+    }
+  })
 }

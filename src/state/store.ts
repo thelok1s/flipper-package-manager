@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { DeviceInfo, FlipperDevice } from '../flipper/types'
-import { emptyFilters, type AppRecord, type Filters, type SortKey } from '../lib/analyze'
+import { emptyFilters, type AppRecord, type CatalogInstall, type Filters, type SortKey } from '../lib/analyze'
 import type { CatalogApp, CatalogCategory } from '../lib/catalog'
 import type { HistoryEntry } from '../lib/db'
 import type { FapInfo } from '../lib/fap'
@@ -74,6 +74,8 @@ export interface State {
   systemPaths: Map<string, string>
   fims: Fim[]
   apps: AppRecord[]
+  /** One entry per .fim, the way Flipper Lab and the mobile app list installed apps. */
+  catalogInstalls: CatalogInstall[]
   duplicates: Map<string, AppRecord[]>
   catalog: {
     status: 'idle' | 'loading' | 'ready' | 'error'
@@ -157,6 +159,7 @@ let state: State = {
   systemPaths: new Map(),
   fims: [],
   apps: [],
+  catalogInstalls: [],
   duplicates: new Map(),
   catalog: { status: 'idle', byAlias: new Map(), byName: new Map(), byId: new Map(), categories: new Map(), apps: [], categoryList: [], api: '' },
   official: { status: 'idle', paths: new Set(), fileNames: new Set() },

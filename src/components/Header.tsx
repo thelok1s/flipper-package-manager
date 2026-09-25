@@ -43,7 +43,7 @@ export function Header() {
   const device = useStore((s) => s.device)
   const status = useStore((s) => s.status)
   const tab = useStore((s) => s.tab)
-  const updateCount = useStore((s) => s.apps.filter((a) => a.catalog && a.updateAvailable).length)
+  const updateCount = useStore((s) => s.catalogInstalls.filter((i) => i.updateAvailable).length)
   const dupCount = useStore((s) => s.duplicates.size)
   const histCount = useStore((s) => s.history.length)
   const theme = useStore((s) => s.prefs.theme)

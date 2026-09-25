@@ -3,11 +3,12 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { linkState, type AppRecord } from '../lib/analyze'
 import { CATALOG_CONTRIBUTE_URL, labAppUrl, type CatalogApp, type CatalogCategory, type CatalogDetail } from '../lib/catalog'
-import { installFromCatalog, isProtected, linkToCatalog, loadCatalog, resolveCatalogSource, updateAll } from '../state/actions'
+import { installFromCatalog, isProtected, linkToCatalog, loadCatalog, resolveCatalogSource, updateCatalogInstalls } from '../state/actions'
 import { getState, setState, useStore } from '../state/store'
 import { OriginBadge } from './AppBadges'
 import { AppIcon } from './AppIcon'
 import { ask } from './Confirm'
+import { LINK_EXPLAINED, REPLACE_EXPLAINED } from './copy'
 import { Button, Hint } from './ui'
 
 type Sort = 'updated' | 'created' | 'downloads' | 'name'
@@ -321,57 +322,110 @@ function DetailModal({ cat, category, copies, onClose }: { cat: CatalogApp; cate
 }
 
 function UpdatesList({ onOpen }: { onOpen: (cat: CatalogApp) => void }) {
+  const installs = useStore((s) => s.catalogInstalls)
   const apps = useStore((s) => s.apps)
+  const fims = useStore((s) => s.fims)
   const busy = useStore((s) => !!s.op || s.status === 'scanning')
-  const updatable = useMemo(() => apps.filter((a) => a.catalog && a.updateAvailable).sort((a, b) => a.name.localeCompare(b.name)), [apps])
-  const allowed = updatable.filter((a) => !isProtected(a))
+  const fimNames = useMemo(() => new Set(fims.map((f) => f.file.toLowerCase())), [fims])
+  const updates = useMemo(
+    () => installs.filter((i) => i.updateAvailable).sort((a, b) => a.fim.fullName.localeCompare(b.fim.fullName)),
+    [installs],
+  )
+  const sideloaded = useMemo(
+    () => apps.filter((a) => a.origin === 'sideloaded' && a.catalog && a.updateAvailable).sort((a, b) => a.name.localeCompare(b.name)),
+    [apps],
+  )
+  const why = busy ? 'Wait for the current operation to finish' : null
 
   const runAll = async () => {
     const ok = await ask({
-      title: `Update ${allowed.length} app${allowed.length === 1 ? '' : 's'}?`,
-      body: 'Each app is replaced with the catalog build for this firmware, one at a time. Previous versions are kept in History.',
+      title: `Update ${updates.length} app${updates.length === 1 ? '' : 's'}?`,
+      body: 'Each catalog install gets the catalog build for this firmware, one at a time. Previous versions are kept in History.',
       confirmLabel: 'Update all',
     })
-    if (ok) await updateAll(allowed.map((a) => a.path))
+    if (ok) await updateCatalogInstalls(updates)
   }
 
-  if (!updatable.length)
-    return (
-      <div className="flex flex-col items-start gap-2 px-6 py-16 md:px-12">
-        <h2 className="text-xl font-semibold tracking-tight text-ink">Everything is up to date</h2>
-        <p className="max-w-[52ch] text-sm leading-relaxed text-muted">
-          Apps installed from the catalog, and sideloaded apps that match a catalog listing, are checked against the latest build for this firmware.
-        </p>
-      </div>
-    )
-
   return (
-    <div className="p-4">
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <p className="text-sm text-muted">
-          <span className="font-mono text-ink">{updatable.length}</span> app{updatable.length === 1 ? ' has' : 's have'} a newer compatible build
-        </p>
-        <Button className="ml-auto" tone="primary" size="sm" icon={ArrowsClockwiseIcon} disabled={busy || !allowed.length} onClick={runAll}>
-          Update all
-        </Button>
-      </div>
-      <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
-        {updatable.map((a) => (
-          <li key={a.path} className="grid grid-cols-[40px_1fr_auto] items-center gap-3 px-4 py-3">
-            <AppIcon pixels={a.info.manifest?.icon} size={40} />
-            <button type="button" className="min-w-0 text-left" onClick={() => onOpen(a.catalog!)}>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="truncate text-sm font-medium text-ink">{a.name}</span>
-                <OriginBadge app={a} />
-              </div>
-              <div className="mt-0.5 truncate font-mono text-xs text-muted">
-                {a.version || '?'} to {a.catalog!.version}, {a.path.replace('/ext/', '')}
-              </div>
-            </button>
-            <ActionButton cat={a.catalog!} copies={[a]} />
-          </li>
-        ))}
-      </ul>
+    <div className="flex flex-col gap-6 p-4">
+      <section>
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">Catalog installs</h2>
+            <p className="text-xs text-muted">
+              The same list Flipper Lab and the mobile app show: apps with a .fim, compared with the latest build for this firmware.
+            </p>
+          </div>
+          <Hint reason={!updates.length ? 'Everything is up to date' : why} className="ml-auto">
+            <Button tone="primary" size="sm" icon={ArrowsClockwiseIcon} disabled={busy || !updates.length} onClick={runAll}>
+              Update all{updates.length ? ` (${updates.length})` : ''}
+            </Button>
+          </Hint>
+        </div>
+        {updates.length ? (
+          <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
+            {updates.map((i) => (
+              <li key={i.fim.file} className="grid grid-cols-[40px_1fr_auto] items-center gap-3 px-4 py-3">
+                {i.app ? <AppIcon pixels={i.app.info.manifest?.icon} size={40} /> : <AppIcon pixels={null} size={40} />}
+                <button type="button" className="min-w-0 text-left" onClick={() => i.catalog && onOpen(i.catalog)}>
+                  <div className="truncate text-sm font-medium text-ink">{i.catalog?.name ?? i.fim.fullName}</div>
+                  <div className="mt-0.5 truncate text-xs text-muted">
+                    {i.fim.versionUid !== i.catalog?.versionId ? `Version ${i.catalog?.version} available` : `Rebuilt for API ${i.catalog?.buildApi}`}
+                    {i.fim.buildApi && `, installed build for API ${i.fim.buildApi}`}
+                    {!i.app && ', file not found in the scan'}
+                  </div>
+                </button>
+                <Hint reason={why}>
+                  <Button size="sm" tone="primary" disabled={busy} onClick={() => updateCatalogInstalls([i])}>
+                    Update
+                  </Button>
+                </Hint>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-muted">
+            All {installs.length} catalog installs are up to date.
+          </p>
+        )}
+      </section>
+
+      {sideloaded.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold text-ink">Sideloaded copies with a newer catalog version</h2>
+          <p className="mb-3 max-w-[80ch] text-xs leading-relaxed text-muted">
+            Flipper Lab does not know about these because they have no .fim. {LINK_EXPLAINED} {REPLACE_EXPLAINED}
+          </p>
+          <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
+            {sideloaded.map((a) => {
+              const link = linkState(a, fimNames)
+              return (
+                <li key={a.path} className="grid grid-cols-[40px_1fr] items-center gap-3 px-4 py-3 md:grid-cols-[40px_1fr_auto]">
+                  <AppIcon pixels={a.info.manifest?.icon} size={40} />
+                  <button type="button" className="min-w-0 text-left" onClick={() => onOpen(a.catalog!)}>
+                    <div className="truncate text-sm font-medium text-ink">{a.name}</div>
+                    <div className="mt-0.5 truncate font-mono text-xs text-muted">
+                      {a.version || '?'} installed, {a.catalog!.version} in catalog, {a.path.replace('/ext/', '')}
+                    </div>
+                  </button>
+                  <div className="col-span-2 flex gap-2 md:col-span-1">
+                    <Hint reason={!link.ok ? link.reason : why ?? LINK_EXPLAINED}>
+                      <Button size="sm" disabled={!link.ok || busy} onClick={() => linkToCatalog([a.path])}>
+                        Link
+                      </Button>
+                    </Hint>
+                    <Hint reason={why ?? REPLACE_EXPLAINED}>
+                      <Button size="sm" tone="primary" disabled={busy} onClick={() => installFromCatalog(a.catalog!, a.path)}>
+                        Replace
+                      </Button>
+                    </Hint>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
     </div>
   )
 }
@@ -464,7 +518,7 @@ function OnFlipperList({ onOpen }: { onOpen: (cat: CatalogApp) => void }) {
 
 export function CatalogView() {
   const catalog = useStore((s) => s.catalog)
-  const updates = useStore((s) => s.apps.filter((a) => a.catalog && a.updateAvailable).length)
+  const updates = useStore((s) => s.catalogInstalls.filter((i) => i.updateAvailable).length)
   const installed = useInstalledIndex()
   const [mode, setMode] = useState<'browse' | 'device' | 'updates'>('browse')
   const [query, setQuery] = useState('')

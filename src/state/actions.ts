@@ -1,6 +1,6 @@
 import { SerialFlipper } from '../flipper/serial'
 import type { FlipperDevice } from '../flipper/types'
-import { buildRecord, linkState, markDuplicates, normalizeName, type AppRecord } from '../lib/analyze'
+import { buildRecord, catalogInstalls, linkState, markDuplicates, normalizeName, type AppRecord, type CatalogInstall } from '../lib/analyze'
 import { compareVersions, downloadBuild, fetchCatalog, fetchDetail, fetchIconBase64, type CatalogApp } from '../lib/catalog'
 import { fapCache, history, newId, sourceNotes, type HistoryEntry } from '../lib/db'
 import { parseFap } from '../lib/fap'
@@ -53,7 +53,8 @@ function rebuild(patch: Partial<ReturnType<typeof getState>> = {}) {
     const paths = new Set(apps.map((a) => a.path))
     const checked = new Set([...next.checked].filter((p) => paths.has(p)))
     const selected = next.selected && paths.has(next.selected) ? next.selected : null
-    return { ...patch, apps, duplicates, checked, selected }
+    const installs = catalogInstalls(next.fims, apps, next.catalog.status === 'ready' ? next.catalog.byId : null, next.deviceInfo)
+    return { ...patch, apps, duplicates, checked, selected, catalogInstalls: installs }
   })
 }
 
@@ -528,6 +529,18 @@ export async function forgetHistory(entry: HistoryEntry) {
   setState((s) => ({ history: s.history.filter((h) => h.id !== entry.id) }))
 }
 
+/**
+ * The catalog icon, base64, for the .fim. Lab and the mobile app skip a .fim whose Icon field is
+ * empty, so an app written without one would be invisible to them.
+ */
+async function requireIcon(cat: CatalogApp): Promise<string> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const icon = await fetchIconBase64(cat.iconUri).catch(() => '')
+    if (icon) return icon
+  }
+  throw new Error('the app icon could not be downloaded, and Flipper Lab ignores catalog manifests without one')
+}
+
 /** Installed copies of a catalog app: its catalog install first, then name or alias matches. */
 export function installedCopies(catalogId: string) {
   return getState()
@@ -541,7 +554,7 @@ export function installedCopies(catalogId: string) {
  * existing copy (sideloaded or an older catalog install) that the new build replaces; its bytes
  * are kept in History.
  */
-export async function installFromCatalog(cat: CatalogApp, replacePath?: string): Promise<boolean> {
+export async function installFromCatalog(cat: CatalogApp, replacePath?: string, opts: { force?: boolean } = {}): Promise<boolean> {
   const d = requireDevice()
   const s = getState()
   const info = s.deviceInfo
@@ -549,11 +562,11 @@ export async function installFromCatalog(cat: CatalogApp, replacePath?: string):
   const old = replacePath ? s.apps.find((a) => a.path === replacePath) : undefined
   // Never install a second copy of an app the scan already found on the Flipper.
   const existing = installedCopies(cat.id)
-  if (!old && existing.length) {
+  if (!old && existing.length && !opts.force) {
     toast(`${cat.name} is already on the Flipper at ${existing[0].path.replace('/ext/', '')}`, 'info')
     return false
   }
-  if (old && isProtected(old)) {
+  if (old && isProtected(old) && !opts.force) {
     toast(`${old.name} is protected. Change protection in the sidebar to replace it.`, 'info')
     return false
   }
@@ -568,7 +581,7 @@ export async function installFromCatalog(cat: CatalogApp, replacePath?: string):
       try {
         const [build, iconBase64, backup] = await Promise.all([
           downloadBuild(cat.versionId, info.target, api),
-          fetchIconBase64(cat.iconUri).catch(() => ''),
+          requireIcon(cat),
           old ? d.read(old.path) : Promise.resolve(undefined),
         ])
         await ensureDir(d, dirname(target))
@@ -642,7 +655,7 @@ export async function linkToCatalog(paths: string[]) {
       }
       const cat = app.catalog
       try {
-        const iconBase64 = await fetchIconBase64(cat.iconUri).catch(() => '')
+        const iconBase64 = await requireIcon(cat)
         const fimText = buildFim({ name: cat.name, iconBase64, api: app.api, uid: cat.id, versionUid: state.versionUid, path })
         await d.write(joinPath(FIM_DIR, `${cat.alias}.fim`), enc.encode(fimText))
         const fim = parseFim(fimText, `${cat.alias}.fim`)
@@ -664,16 +677,19 @@ export async function replaceWithMarket(path: string) {
   if (app?.catalog) await installFromCatalog(app.catalog, path)
 }
 
-/** Updates every installed app that has a newer compatible catalog build, one at a time. */
-export async function updateAll(paths: string[]) {
+/**
+ * Updates catalog installs (by .fim, like Flipper Lab) one at a time. When the scan found the file,
+ * it is replaced in place of Lab's path; when it did not, the build is installed fresh.
+ */
+export async function updateCatalogInstalls(installs: CatalogInstall[]) {
   let ok = 0
-  for (const path of paths) {
-    const app = getState().apps.find((a) => a.path === path)
-    if (!app?.catalog || isProtected(app)) continue
-    if (await installFromCatalog(app.catalog, path)) ok++
+  for (const inst of installs) {
+    if (!inst.catalog) continue
+    const current = getState().catalogInstalls.find((i) => i.fim.file === inst.fim.file)
+    if (await installFromCatalog(inst.catalog, current?.app?.path, { force: true })) ok++
     if (!getState().device) break
   }
-  if (paths.length > 1) toast(`Updated ${ok} of ${paths.length} apps`, ok === paths.length ? 'success' : 'info')
+  if (installs.length > 1) toast(`Updated ${ok} of ${installs.length} apps`, ok === installs.length ? 'success' : 'info')
 }
 
 export async function setSourceNote(appId: string, url: string) {

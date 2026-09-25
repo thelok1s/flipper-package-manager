@@ -18,6 +18,7 @@ import { AppIcon } from './AppIcon'
 import { LabIcon } from './LabIcon'
 import { confirmDelete } from './AppsView'
 import { ask } from './Confirm'
+import { LINK_EXPLAINED, REPLACE_EXPLAINED } from './copy'
 import { Button, Hint, IconButton, formatSize } from './ui'
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -132,7 +133,7 @@ export function DetailDrawer() {
 
           <div className="mt-4 flex flex-wrap gap-2 px-5">
             {app.catalog && (app.origin !== 'market' || app.updateAvailable || app.compat !== 'ok') && app.origin !== 'official' && app.origin !== 'firmware' && (
-              <Hint reason={busyReason}>
+              <Hint reason={busyReason ?? (app.origin === 'market' ? undefined : REPLACE_EXPLAINED)}>
                 <Button tone="primary" icon={DownloadSimpleIcon} disabled={busy} onClick={onReplace}>
                   {app.origin === 'market' ? 'Update from catalog' : 'Replace with catalog'}
                 </Button>
@@ -221,7 +222,7 @@ export function DetailDrawer() {
                       </Button>
                     </Hint>
                     <span className="text-xs leading-snug text-muted">
-                      {link.ok ? `Writes a .fim so this copy counts as a catalog install. ${link.reason}.` : link.reason}
+                      {link.ok ? `${LINK_EXPLAINED} ${link.reason}.` : link.reason}
                     </span>
                   </div>
                 )}

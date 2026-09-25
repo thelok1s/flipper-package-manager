@@ -185,3 +185,37 @@ describe('linking and reclaiming', () => {
     expect(byId.get('unknown')?.backup).toBeDefined()
   })
 })
+
+describe('catalog installs match Flipper Lab', () => {
+  it('lists every .fim, flags updates like Lab and skips manifests Lab ignores', async () => {
+    const { catalogInstalls } = await import('../lib/analyze')
+    const withIcon = (f: ReturnType<typeof fim>) => ({ ...f, iconBase64: 'aWNvbg==' })
+    const upToDate = withIcon(fim('v2-id', '87.1'))
+    const older = { ...withIcon(fim('v1-id', '87.1')), file: 'b.fim' }
+    const otherApi = { ...withIcon(fim('v2-id', '86.0')), file: 'c.fim' }
+    const noIcon = { ...fim('v1-id', '87.1'), file: 'd.fim' }
+    const dev = { ...withIcon(fim('v1-id', '87.1')), file: 'e.fim', devCatalog: true }
+    const list = catalogInstalls([upToDate, older, otherApi, noIcon, dev], [], new Map([[cat.id, cat]]), device)
+    expect(list.map((i) => [i.fim.file, i.updateAvailable, !!i.hiddenInLab])).toEqual([
+      ['bounce.fim', false, false],
+      ['b.fim', true, false], // newer version, even though no file was scanned
+      ['c.fim', true, false], // built for another API
+      ['d.fim', false, true], // Lab skips a .fim without an icon
+      ['e.fim', false, true], // development catalog
+    ])
+  })
+
+  it('treats a .fim on a firmware-listed path as a catalog install', () => {
+    const info = parseFap(buildFap({ name: 'Nfc Magic', apiMajor: 87, apiMinor: 1 }))
+    const r = buildRecord({ path: '/ext/apps/Games/bounce.fap', size: 1 }, info, {
+      device,
+      systemPaths: new Map([['/ext/apps/games/bounce.fap', '']]),
+      official: null,
+      fims: [fim('v2-id', '87.1')],
+      catalog: null,
+      catalogByName: null,
+      catalogById: new Map([[cat.id, cat]]),
+    })
+    expect(r.origin).toBe('market')
+  })
+})

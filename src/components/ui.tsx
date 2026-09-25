@@ -134,7 +134,7 @@ export const formatEta = (sec?: number) =>
 export function Hint({ reason, children, className = '' }: { reason?: string | false | null; children: ReactNode; className?: string }) {
   const ref = useRef<HTMLSpanElement>(null)
   const [pos, setPos] = useState<{ x: number; y: number; below: boolean } | null>(null)
-  if (!reason) return <>{children}</>
+  if (!reason) return className ? <span className={`inline-flex ${className}`}>{children}</span> : <>{children}</>
   const show = () => {
     const r = ref.current?.getBoundingClientRect()
     if (!r) return
