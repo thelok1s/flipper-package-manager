@@ -8,9 +8,9 @@ import { Logo } from './Logo'
 import { Button } from './ui'
 
 const STEPS = [
-  { title: 'Plug in the Flipper over USB', body: 'Unlock it and leave it on the desktop screen.' },
-  { title: 'Close anything else using the port', body: 'qFlipper, lab.flipper.net and serial terminals hold the port open.' },
-  { title: 'Pick "Flipper" in the browser prompt', body: 'The app reads /ext/apps over the same RPC channel Flipper Lab uses.' },
+  { title: 'Plug in Flipper over USB', body: 'Make sure your browser supports Web Serial API' },
+  { title: 'Close anything else using the port', body: 'qFlipper, Flipper Lab and serial terminals hold the port open' },
+  { title: 'Pick your Flipper in the browser prompt', body: 'This webapp will read each app over RPC channel and analyze their manifests' },
 ]
 
 export function ConnectScreen() {
@@ -31,10 +31,10 @@ export function ConnectScreen() {
         >
           <Logo size={72} className="mb-6" />
           <h1 className="text-4xl font-semibold leading-[1.05] tracking-tighter text-ink md:text-5xl">
-            Sort out every app on your Flipper.
+            Sort out every app on your Flipper
           </h1>
           <p className="mt-5 max-w-[46ch] text-base leading-relaxed text-muted">
-            Find apps built for another firmware API, duplicate copies and sideloaded builds, then clean them up safely.
+            Remove unused apps that come with the firmware, stale or outdated versions and remove duplicates
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Button tone="primary" disabled={!supported || busy} onClick={() => connect()} className="h-11 px-5 text-[15px]">

@@ -35,7 +35,7 @@ export function ScanMethodPicker() {
           ? 'Copies each app over USB and reads it here. About 8x faster.'
           : jsScan === 'unavailable'
             ? 'No JS engine on this firmware, so scans use full read.'
-            : 'Parses apps on the Flipper itself. Only faster if the computer you are using is a toaster.'}
+            : 'Parses apps on the Flipper itself. Only faster if your current device is a toaster.'}
       </p>
     </div>
   )

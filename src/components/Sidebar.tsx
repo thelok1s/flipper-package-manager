@@ -30,11 +30,11 @@ export function Sidebar() {
   const toggleOfficial = async (on: boolean) => {
     if (!on) return setState({ allowOfficialRemoval: false })
     const ok = await ask({
-      title: 'Allow removing official apps?',
+      title: 'Allow removing system apps?',
       body: (
         <>
           Official apps such as NFC, Sub-GHz, Infrared and Bad USB are core Flipper features. Without them the matching menu entries stop working
-          until you reinstall the firmware or restore them from History. This override lasts until you reload the page.
+          until you reflash the firmware or restore them. This override lasts until you reload the page.
         </>
       ),
       confirmLabel: 'Allow removal',
@@ -124,8 +124,8 @@ export function Sidebar() {
         <Switch
           checked={filters.hideModuleApps}
           onChange={(v) => set({ hideModuleApps: v, modules: v ? [] : filters.modules })}
-          label="Hide apps that need a module"
-          hint={`${stats.moduleApps} apps name a board in brackets, like [LD2450]`}
+          label="Hide apps that require peripherals"
+          hint={`${stats.moduleApps} apps that name GPIO modules like [ESP32]`}
         />
         {!filters.hideModuleApps && stats.modules.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -158,7 +158,7 @@ export function Sidebar() {
             void scan()
           }}
           label="Hide non-app assets"
-          hint="Skips internal and lowercase folders in /ext/apps."
+          hint="Skips internal and lowercase folders in /ext/apps"
         />
         <div className="mt-4">
           <ScanMethodPicker />
@@ -170,13 +170,13 @@ export function Sidebar() {
           checked={protectSystem}
           onChange={(v) => setState((s) => ({ prefs: { ...s.prefs, protectSystem: v } }))}
           label="Protect firmware apps"
-          hint="Installed by this device's firmware update (listed in /ext/Manifest). Protected apps can't be deleted or moved."
+          hint="Installed with device's firmware (usually non-stock). Protected apps can't be deleted or moved."
         />
         <div className={allowOfficial ? 'rounded-lg bg-danger-soft p-2 -m-2' : ''}>
           <Switch
             checked={allowOfficial}
             onChange={toggleOfficial}
-            label="Allow removing official apps"
+            label="Allow removing system apps"
             hint={
               official.status === 'ready'
                 ? `Core apps from official firmware ${official.version} (${official.paths.size}). Off again after a reload.`
