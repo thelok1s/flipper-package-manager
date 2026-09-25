@@ -41,7 +41,7 @@ export async function confirmDelete(paths: string[]) {
   if (!n) {
     await ask({
       title: 'Nothing to delete',
-      body: 'These apps are protected. Official apps need "Allow removing official apps" in the sidebar; firmware apps need their protection switched off.',
+      body: 'These apps are protected. Official apps need "Allow removing system apps" in the sidebar; firmware apps need their protection switched off.',
       confirmLabel: 'OK',
     })
     return

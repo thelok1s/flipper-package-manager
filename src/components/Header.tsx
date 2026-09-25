@@ -8,7 +8,8 @@ import { IconButton } from './ui'
 
 // Lab icons where Flipper Lab has one; duplicates has no Lab equivalent.
 const TABS: { id: Tab; label: string; lab?: LabIconId }[] = [
-  { id: 'apps', label: 'Apps', lab: 'apps' },
+  { id: 'apps', label: 'Installed', lab: 'installed' },
+  { id: 'catalog', label: 'Catalog', lab: 'apps' },
   { id: 'folders', label: 'Folders', lab: 'files' },
   { id: 'duplicates', label: 'Duplicates' },
   { id: 'history', label: 'History', lab: 'logs' },
@@ -42,10 +43,11 @@ export function Header() {
   const device = useStore((s) => s.device)
   const status = useStore((s) => s.status)
   const tab = useStore((s) => s.tab)
+  const updateCount = useStore((s) => s.apps.filter((a) => a.catalog && a.updateAvailable).length)
   const dupCount = useStore((s) => s.duplicates.size)
   const histCount = useStore((s) => s.history.length)
   const theme = useStore((s) => s.prefs.theme)
-  const counts: Partial<Record<Tab, number>> = { duplicates: dupCount, history: histCount }
+  const counts: Partial<Record<Tab, number>> = { catalog: updateCount, duplicates: dupCount, history: histCount }
 
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-surface/90 backdrop-blur">

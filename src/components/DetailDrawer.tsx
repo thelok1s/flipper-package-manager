@@ -75,7 +75,7 @@ export function DetailDrawer() {
 
   const deviceApi = info ? `${info.apiMajor}.${info.apiMinor}` : undefined
   const locked = useStore(() => (app ? isProtected(app) : false))
-  const lockReason = app?.origin === 'official' ? 'Official app. Allow removing official apps in the sidebar first.' : 'Firmware app, protected in the sidebar'
+  const lockReason = app?.origin === 'official' ? 'Official app. Allow removing system apps in the sidebar first.' : 'Firmware app, protected in the sidebar'
 
   const onReplace = async () => {
     if (!app?.catalog || !info) return

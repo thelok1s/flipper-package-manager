@@ -10,6 +10,7 @@ const KIND: Record<HistoryKind, string> = {
   delete: 'Deleted',
   move: 'Moved',
   replace: 'Replaced with catalog build',
+  install: 'Installed from catalog',
   restore: 'Restored',
   mkdir: 'Folder created',
 }

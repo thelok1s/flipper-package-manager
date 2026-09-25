@@ -24,7 +24,8 @@ Import the GitHub repo in Vercel. The framework (Vite), build command and output
 | Duplicates | Grouped by file name or manifest name across folders. Best copy = loads on this firmware, then highest version, then catalog-managed |
 | System app protection | Official apps (from the latest official release's resources Manifest on update.flipperzero.one) need an explicit session override to remove. Firmware apps (listed only in the device's `/ext/Manifest`) follow a sidebar switch |
 | Folder explorer | Drag apps onto folders, the tree or the `..` tile. Create or remove empty folders |
-| Catalog vs sideloaded | Catalog installs carry a `.fim` in `/ext/apps_manifests` (as lab.flipper.net writes them). Sideloaded apps are matched to the catalog by alias or name and can be replaced with the catalog build for your API |
+| Catalog (Flipper Lab's Apps page) | Browse all apps with builds for your firmware's API: category chips, search, sort, Lab-style screenshot cards, details with description, changelog and links. Install writes `/ext/apps/<Category>/<alias>.fap` and a `.fim` manifest exactly like lab.flipper.net |
+| Updates | Catalog installs update when the latest compatible version or build API differs from their `.fim` (Lab's rule). Sideloaded apps matched by name or alias can be replaced with the catalog build. Update one or Update all; previous versions stay restorable in History |
 | History and restore | IndexedDB keeps every delete, move and replace, including the original `.fap` bytes, so deleted apps can be restored. Links: Flipper Lab page, repo links found inside the binary, and your own saved source URL |
 | Views | Icons, details list, grouped by folder. Sort by name, folder, compatibility, version, API or size. Prefs and filters persist in localStorage |
 

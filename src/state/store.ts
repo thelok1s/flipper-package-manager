@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { DeviceInfo, FlipperDevice } from '../flipper/types'
 import { emptyFilters, type AppRecord, type Filters, type SortKey } from '../lib/analyze'
-import type { CatalogApp } from '../lib/catalog'
+import type { CatalogApp, CatalogCategory } from '../lib/catalog'
 import type { HistoryEntry } from '../lib/db'
 import type { FapInfo } from '../lib/fap'
 import type { Fim } from '../lib/manifests'
@@ -31,7 +31,7 @@ export interface ScanProgress {
   etaSec?: number
 }
 
-export type Tab = 'apps' | 'folders' | 'duplicates' | 'history'
+export type Tab = 'apps' | 'catalog' | 'folders' | 'duplicates' | 'history'
 export type ViewMode = 'grid' | 'list' | 'grouped'
 export type Theme = 'system' | 'light' | 'dark'
 
@@ -74,7 +74,13 @@ export interface State {
     error?: string
     byAlias: Map<string, CatalogApp>
     byName: Map<string, CatalogApp>
+    byId: Map<string, CatalogApp>
+    /** Category id to name. */
     categories: Map<string, string>
+    apps: CatalogApp[]
+    categoryList: CatalogCategory[]
+    /** API the list was loaded for; empty for the latest-release list. */
+    api: string
   }
   official: {
     status: 'idle' | 'loading' | 'ready' | 'error'
@@ -89,7 +95,8 @@ export interface State {
   jsScan: 'unknown' | 'available' | 'unavailable'
   history: HistoryEntry[]
   notes: Map<string, string>
-  op: { label: string; done: number; total: number } | null
+  /** `key` ties the operation to a catalog app id so its card can show progress. */
+  op: { label: string; done: number; total: number; key?: string } | null
   toasts: Toast[]
   selected: string | null
   checked: Set<string>
@@ -145,7 +152,7 @@ let state: State = {
   fims: [],
   apps: [],
   duplicates: new Map(),
-  catalog: { status: 'idle', byAlias: new Map(), byName: new Map(), categories: new Map() },
+  catalog: { status: 'idle', byAlias: new Map(), byName: new Map(), byId: new Map(), categories: new Map(), apps: [], categoryList: [], api: '' },
   official: { status: 'idle', paths: new Set(), fileNames: new Set() },
   allowOfficialRemoval: false,
   jsScan: 'unknown',

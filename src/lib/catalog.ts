@@ -1,12 +1,13 @@
 /**
  * Client for the Flipper Application Catalog (the backend behind lab.flipper.net and the mobile app).
- * Requests go through the `/catalog-api` proxy in vite.config.ts because the catalog only
- * allows lab.flipper.net as a CORS origin.
+ * JSON requests go through the `/catalog-api` proxy in vite.config.ts / vercel.json because the
+ * catalog only allows lab.flipper.net as a CORS origin. Images are plain <img> loads and need no proxy.
  */
 const BASE = (import.meta.env.VITE_CATALOG_BASE as string | undefined) ?? '/catalog-api'
 const ORIGIN = 'https://catalog.flipperzero.one/api/v0'
 
 export const labAppUrl = (alias: string) => `https://lab.flipper.net/apps/${alias}`
+export const CATALOG_CONTRIBUTE_URL = 'https://github.com/flipperdevices/flipper-application-catalog'
 
 export interface CatalogApp {
   id: string
@@ -18,22 +19,31 @@ export interface CatalogApp {
   version: string
   shortDescription: string
   iconUri: string
+  screenshots: string[]
+  /** SDK API of the build the catalog serves for this firmware (or the latest release). */
   buildApi: string
+  createdAt: number
+  updatedAt: number
+  downloads: number
 }
 
 export interface CatalogCategory {
   id: string
   name: string
+  /** Hex without '#', as the catalog sends it. */
   color: string
+  iconUri: string
+  priority: number
 }
 
 export interface CatalogDetail {
   sourceUrl?: string
   manifestUrl?: string
   description: string
+  changelog: string
 }
 
-/** Rewrites absolute catalog URLs (icons, bundles) so they also go through the proxy. */
+/** Rewrites absolute catalog URLs (icons, bundles) so fetch() calls also go through the proxy. */
 export const proxied = (url: string) => (url.startsWith(ORIGIN) ? BASE + url.slice(ORIGIN.length) : url)
 
 async function getJson<T>(path: string): Promise<T> {
@@ -47,21 +57,35 @@ interface RawApp {
   alias: string
   author: string
   category_id: string
+  created_at: number
+  updated_at: number
+  downloads: number
   current_version: {
     _id: string
     name: string
     version: string
     short_description: string
     icon_uri: string
+    screenshots?: string[]
     current_build?: { sdk?: { api?: string } }
   }
 }
 
-export async function fetchCatalog(): Promise<{ apps: CatalogApp[]; categories: CatalogCategory[] }> {
+export interface Compat {
+  api: string
+  target: number
+}
+
+/**
+ * Loads the whole catalog (a few hundred apps). With `compat`, each app's current version is the
+ * latest one that has a build for this firmware, as lab.flipper.net does; without it, the latest release.
+ */
+export async function fetchCatalog(compat?: Compat): Promise<{ apps: CatalogApp[]; categories: CatalogCategory[] }> {
   const pageSize = 500
+  const filter = compat ? `api=${compat.api}&target=f${compat.target}` : 'is_latest_release_version=true'
   const apps: CatalogApp[] = []
   for (let offset = 0; offset < 5000; offset += pageSize) {
-    const page = await getJson<RawApp[]>(`/0/application?limit=${pageSize}&offset=${offset}&is_latest_release_version=true`)
+    const page = await getJson<RawApp[]>(`/0/application?limit=${pageSize}&offset=${offset}&${filter}&sort_by=updated_at&sort_order=-1`)
     for (const a of page) {
       apps.push({
         id: a._id,
@@ -73,26 +97,38 @@ export async function fetchCatalog(): Promise<{ apps: CatalogApp[]; categories: 
         version: a.current_version.version,
         shortDescription: a.current_version.short_description,
         iconUri: a.current_version.icon_uri,
+        screenshots: a.current_version.screenshots ?? [],
         buildApi: a.current_version.current_build?.sdk?.api ?? '',
+        createdAt: a.created_at,
+        updatedAt: a.updated_at,
+        downloads: a.downloads ?? 0,
       })
     }
     if (page.length < pageSize) break
   }
-  const rawCategories = await getJson<{ _id: string; name: string; color: string }[]>('/0/category')
-  return { apps, categories: rawCategories.map((c) => ({ id: c._id, name: c.name, color: c.color })) }
+  const rawCategories = await getJson<{ _id: string; name: string; color: string; icon_uri: string; priority: number }[]>(
+    `/0/category${compat ? `?api=${compat.api}&target=f${compat.target}` : ''}`,
+  )
+  const categories = rawCategories
+    .map((c) => ({ id: c._id, name: c.name, color: c.color, iconUri: c.icon_uri, priority: c.priority }))
+    .sort((a, b) => a.priority - b.priority)
+  return { apps, categories }
 }
 
-export async function fetchDetail(alias: string): Promise<CatalogDetail> {
+export async function fetchDetail(alias: string, compat?: Compat): Promise<CatalogDetail> {
+  const q = compat ? `?api=${compat.api}&target=f${compat.target}` : ''
   const d = await getJson<{
     current_version: {
       description?: string
+      changelog?: string
       links?: { manifest_uri?: string; source_code?: { uri?: string } }
     }
-  }>(`/application/${encodeURIComponent(alias)}`)
+  }>(`/application/${encodeURIComponent(alias)}${q}`)
   return {
     sourceUrl: d.current_version.links?.source_code?.uri,
     manifestUrl: d.current_version.links?.manifest_uri,
     description: d.current_version.description ?? '',
+    changelog: d.current_version.changelog ?? '',
   }
 }
 

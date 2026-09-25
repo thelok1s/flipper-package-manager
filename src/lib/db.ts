@@ -6,7 +6,7 @@ const historyStore = createStore('fpm-history', 'entries')
 const cacheStore = createStore('fpm-fap-cache', 'entries')
 const notesStore = createStore('fpm-notes', 'entries')
 
-export type HistoryKind = 'delete' | 'move' | 'replace' | 'restore' | 'mkdir'
+export type HistoryKind = 'delete' | 'move' | 'replace' | 'install' | 'restore' | 'mkdir'
 
 export interface HistoryEntry {
   id: string

@@ -1,7 +1,7 @@
 import { SerialFlipper } from '../flipper/serial'
 import type { FlipperDevice } from '../flipper/types'
 import { buildRecord, markDuplicates, normalizeName, type AppRecord } from '../lib/analyze'
-import { downloadBuild, fetchCatalog, fetchDetail, fetchIconBase64 } from '../lib/catalog'
+import { downloadBuild, fetchCatalog, fetchDetail, fetchIconBase64, type CatalogApp } from '../lib/catalog'
 import { fapCache, history, newId, sourceNotes, type HistoryEntry } from '../lib/db'
 import { parseFap } from '../lib/fap'
 import { loadOfficialApps } from '../lib/official'
@@ -46,6 +46,7 @@ function rebuild(patch: Partial<ReturnType<typeof getState>> = {}) {
       fims: next.fims,
       catalog: next.catalog.status === 'ready' ? next.catalog.byAlias : null,
       catalogByName: next.catalog.status === 'ready' ? next.catalog.byName : null,
+      catalogById: next.catalog.status === 'ready' ? next.catalog.byId : null,
     }
     const apps = next.scanned.map((f) => buildRecord(f, f.info, ctx))
     const duplicates = markDuplicates(apps)
@@ -100,15 +101,30 @@ export async function disconnect() {
   await d?.close()
 }
 
+/**
+ * Loads the whole catalog. Once a Flipper is connected it asks for the latest version that has a
+ * build for this firmware, so Install and Update always fetch something that runs.
+ */
 export async function loadCatalog(force = false) {
-  const { catalog } = getState()
-  if (!force && (catalog.status === 'loading' || catalog.status === 'ready')) return
+  const { catalog, deviceInfo } = getState()
+  const api = deviceInfo ? `${deviceInfo.apiMajor}.${deviceInfo.apiMinor}` : ''
+  if (!force && catalog.status === 'loading') return
+  if (!force && catalog.status === 'ready' && catalog.api === api) return
   setState((s) => ({ catalog: { ...s.catalog, status: 'loading', error: undefined } }))
   try {
-    const { apps, categories } = await fetchCatalog()
-    const byAlias = new Map(apps.map((a) => [a.alias.toLowerCase(), a]))
-    const byName = new Map(apps.map((a) => [normalizeName(a.name), a]))
-    rebuild({ catalog: { status: 'ready', byAlias, byName, categories: new Map(categories.map((c) => [c.id, c.name])) } })
+    const { apps, categories } = await fetchCatalog(deviceInfo ? { api, target: deviceInfo.target } : undefined)
+    rebuild({
+      catalog: {
+        status: 'ready',
+        api,
+        apps,
+        categoryList: categories,
+        byAlias: new Map(apps.map((a) => [a.alias.toLowerCase(), a])),
+        byName: new Map(apps.map((a) => [normalizeName(a.name), a])),
+        byId: new Map(apps.map((a) => [a.id, a])),
+        categories: new Map(categories.map((c) => [c.id, c.name])),
+      },
+    })
   } catch (e) {
     setState((s) => ({ catalog: { ...s.catalog, status: 'error', error: errorText(e) } }))
   }
@@ -301,11 +317,11 @@ function snapshot(app: AppRecord) {
   }
 }
 
-async function withOp<T>(label: string, total: number, fn: (step: (label?: string) => void) => Promise<T>) {
+async function withOp<T>(label: string, total: number, fn: (step: (label?: string) => void) => Promise<T>, key?: string) {
   let done = 0
-  setState({ op: { label, done, total } })
+  setState({ op: { label, done, total, key } })
   try {
-    return await fn((l) => setState({ op: { label: l ?? label, done: ++done, total } }))
+    return await fn((l) => setState({ op: { label: l ?? label, done: ++done, total, key } }))
   } finally {
     setState({ op: null })
   }
@@ -465,50 +481,108 @@ export async function forgetHistory(entry: HistoryEntry) {
   setState((s) => ({ history: s.history.filter((h) => h.id !== entry.id) }))
 }
 
+/** Installed copies of a catalog app: its catalog install first, then name or alias matches. */
+export function installedCopies(catalogId: string) {
+  return getState()
+    .apps.filter((a) => a.catalog?.id === catalogId)
+    .sort((a, b) => (a.origin === 'market' ? 0 : 1) - (b.origin === 'market' ? 0 : 1))
+}
+
 /**
- * Swaps a sideloaded .fap for the catalog build that matches this firmware, installed the way
- * lab.flipper.net does it: /ext/apps/<Category>/<alias>.fap plus a .fim manifest.
+ * Installs or updates an app from the catalog the way lab.flipper.net does:
+ * /ext/apps/<Category>/<alias>.fap plus a .fim manifest in /ext/apps_manifests. `replacePath` is an
+ * existing copy (sideloaded or an older catalog install) that the new build replaces; its bytes
+ * are kept in History.
  */
-export async function replaceWithMarket(path: string) {
+export async function installFromCatalog(cat: CatalogApp, replacePath?: string): Promise<boolean> {
   const d = requireDevice()
   const s = getState()
-  const app = s.apps.find((a) => a.path === path)
   const info = s.deviceInfo
-  if (!app?.catalog || !info) return
-  const cat = app.catalog
+  if (!info || s.op) return false
+  const old = replacePath ? s.apps.find((a) => a.path === replacePath) : undefined
+  if (old && isProtected(old)) {
+    toast(`${old.name} is protected. Change protection in the sidebar to replace it.`, 'info')
+    return false
+  }
   const category = s.catalog.categories.get(cat.categoryId) ?? 'Tools'
   const target = `${APPS_ROOT}/${category}/${cat.alias}.fap`
   const api = `${info.apiMajor}.${info.apiMinor}`
-  await withOp(`Installing ${cat.name} from the catalog`, 1, async () => {
-    try {
-      const [build, iconBase64, backup] = await Promise.all([
-        downloadBuild(cat.versionId, info.target, api),
-        fetchIconBase64(cat.iconUri).catch(() => ''),
-        d.read(path),
-      ])
-      await ensureDir(d, dirname(target))
-      await ensureDir(d, FIM_DIR)
-      await d.write(target, build, (done, total) => setState({ op: { label: `Writing ${cat.name}`, done, total } }))
-      const fimText = buildFim({ name: cat.name, iconBase64, api, uid: cat.id, versionUid: cat.versionId, path: target })
-      await d.write(joinPath(FIM_DIR, `${cat.alias}.fim`), enc.encode(fimText))
-      if (target.toLowerCase() !== path.toLowerCase()) await d.remove(path)
-      await record({ kind: 'replace', path, toPath: target, ...snapshot(app), backup })
-      const fim = parseFim(fimText, `${cat.alias}.fim`)
-      const folder = dirname(target).slice(APPS_ROOT.length + 1)
-      rebuild({
-        scanned: [
-          ...getState().scanned.filter((f) => f.path !== path && f.path.toLowerCase() !== target.toLowerCase()),
-          { path: target, size: build.length, info: parseFap(build) },
-        ],
-        fims: [...getState().fims.filter((f) => f.file !== fim.file), fim],
-        folders: getState().folders.includes(folder) ? getState().folders : [...getState().folders, folder].sort(),
-        selected: target,
-      })
-      toast(`${cat.name} is now managed by the Flipper catalog`, 'success')
-    } catch (e) {
-      toast(`Could not install from the catalog: ${errorText(e)}`, 'error')
-    }
-  })
+  const verb = old ? (old.origin === 'market' ? 'Updating' : 'Replacing') : 'Installing'
+  return withOp(
+    `${verb} ${cat.name}`,
+    1,
+    async () => {
+      try {
+        const [build, iconBase64, backup] = await Promise.all([
+          downloadBuild(cat.versionId, info.target, api),
+          fetchIconBase64(cat.iconUri).catch(() => ''),
+          old ? d.read(old.path) : Promise.resolve(undefined),
+        ])
+        await ensureDir(d, dirname(target))
+        await ensureDir(d, FIM_DIR)
+        await d.write(target, build, (done, total) => setState({ op: { label: `${verb} ${cat.name}`, done, total, key: cat.id } }))
+        const fimText = buildFim({ name: cat.name, iconBase64, api, uid: cat.id, versionUid: cat.versionId, path: target })
+        await d.write(joinPath(FIM_DIR, `${cat.alias}.fim`), enc.encode(fimText))
+        if (old && old.path.toLowerCase() !== target.toLowerCase()) {
+          await d.remove(old.path)
+          // A catalog install under another alias leaves a stale manifest behind.
+          if (old.fim && old.fim.file !== `${cat.alias}.fim`) await d.remove(joinPath(FIM_DIR, old.fim.file)).catch(() => undefined)
+        }
+        const fresh = parseFap(build)
+        await record(
+          old
+            ? { kind: 'replace', path: old.path, toPath: target, ...snapshot(old), backup, labAlias: cat.alias }
+            : {
+                kind: 'install',
+                path: target,
+                appId: cat.alias,
+                name: cat.name,
+                version: cat.version,
+                api,
+                iconPixels: fresh.manifest?.icon ?? null,
+                urls: [],
+                labAlias: cat.alias,
+              },
+        )
+        const fim = parseFim(fimText, `${cat.alias}.fim`)
+        const folder = dirname(target).slice(APPS_ROOT.length + 1)
+        const oldPath = old?.path.toLowerCase()
+        rebuild({
+          scanned: [
+            ...getState().scanned.filter((f) => f.path.toLowerCase() !== oldPath && f.path.toLowerCase() !== target.toLowerCase()),
+            { path: target, size: build.length, info: fresh },
+          ],
+          fims: [...getState().fims.filter((f) => f.file !== fim.file && (!old?.fim || f.file !== old.fim.file)), fim],
+          folders: getState().folders.includes(folder) ? getState().folders : [...getState().folders, folder].sort(),
+          selected: getState().selected === replacePath ? target : getState().selected,
+        })
+        toast(old ? `${cat.name} updated to ${cat.version}` : `${cat.name} installed to apps/${category}`, 'success')
+        return true
+      } catch (e) {
+        toast(`Could not ${old ? 'update' : 'install'} ${cat.name}: ${errorText(e)}`, 'error')
+        return false
+      }
+    },
+    cat.id,
+  )
+}
+
+/** Swaps an installed copy for the catalog build that matches this firmware. */
+export async function replaceWithMarket(path: string) {
+  const app = getState().apps.find((a) => a.path === path)
+  if (app?.catalog) await installFromCatalog(app.catalog, path)
+}
+
+/** Updates every installed app that has a newer compatible catalog build, one at a time. */
+export async function updateAll(paths: string[]) {
+  let ok = 0
+  for (const path of paths) {
+    const app = getState().apps.find((a) => a.path === path)
+    if (!app?.catalog || isProtected(app)) continue
+    if (await installFromCatalog(app.catalog, path)) ok++
+    if (!getState().device) break
+  }
+  if (paths.length > 1) toast(`Updated ${ok} of ${paths.length} apps`, ok === paths.length ? 'success' : 'info')
 }
 
 export async function setSourceNote(appId: string, url: string) {
@@ -522,8 +596,9 @@ export async function setSourceNote(appId: string, url: string) {
 }
 
 export async function resolveCatalogSource(alias: string) {
+  const info = getState().deviceInfo
   try {
-    return await fetchDetail(alias)
+    return await fetchDetail(alias, info ? { api: `${info.apiMajor}.${info.apiMinor}`, target: info.target } : undefined)
   } catch {
     return null
   }

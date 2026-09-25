@@ -2,6 +2,7 @@ import { FunnelSimpleIcon } from '@phosphor-icons/react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { AppsView } from './components/AppsView'
+import { CatalogView } from './components/CatalogView'
 import { ConfirmHost } from './components/Confirm'
 import { ConnectScreen } from './components/ConnectScreen'
 import { DetailDrawer } from './components/DetailDrawer'
@@ -83,6 +84,8 @@ export default function App() {
                 )}
               </AnimatePresence>
             </div>
+          ) : tab === 'catalog' ? (
+            <CatalogView />
           ) : tab === 'folders' ? (
             <FoldersView />
           ) : tab === 'duplicates' ? (

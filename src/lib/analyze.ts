@@ -78,6 +78,20 @@ interface BuildContext {
   fims: Fim[]
   catalog: Map<string, CatalogApp> | null
   catalogByName: Map<string, CatalogApp> | null
+  catalogById?: Map<string, CatalogApp> | null
+}
+
+/**
+ * Catalog installs carry a .fim with the exact version they came from, so they follow the rule
+ * lab.flipper.net uses: update when the catalog's latest compatible version differs, or when the
+ * build was made for another API. Other apps can only be compared by version number.
+ */
+function needsUpdate(catalog: CatalogApp, fim: Fim | undefined, byUid: boolean, version: string, device: DeviceInfo | null) {
+  if (fim && byUid) {
+    const deviceApi = device ? `${device.apiMajor}.${device.apiMinor}` : ''
+    return fim.versionUid !== catalog.versionId || (!!deviceApi && !!fim.buildApi && fim.buildApi !== deviceApi)
+  }
+  return !!version && compareVersions(catalog.version, version) > 0
 }
 
 export function buildRecord(
@@ -97,7 +111,8 @@ export function buildRecord(
   const official = !!ctx.official && (ctx.official.paths.has(lower) || (onDevice && ctx.official.fileNames.has(fileName.toLowerCase())))
   const origin: Origin = official ? 'official' : onDevice ? 'firmware' : fim ? 'market' : 'sideloaded'
   const version = m ? `${m.versionMajor}.${m.versionMinor}` : ''
-  const catalog = ctx.catalog?.get(appId.toLowerCase()) ?? ctx.catalogByName?.get(normalizeName(name))
+  const byUid = fim ? ctx.catalogById?.get(fim.uid) : undefined
+  const catalog = byUid ?? ctx.catalog?.get(appId.toLowerCase()) ?? ctx.catalogByName?.get(normalizeName(name))
   return {
     path: file.path,
     dir,
@@ -115,7 +130,7 @@ export function buildRecord(
     fim,
     modules: moduleTags(name),
     catalog,
-    updateAvailable: !!(catalog && version && compareVersions(catalog.version, version) > 0),
+    updateAvailable: !!catalog && needsUpdate(catalog, fim, !!byUid, version, ctx.device),
   }
 }
 
